@@ -256,6 +256,11 @@ class ACT(nn.Module):
         self.encoder_robot_and_latent_pos_embed = nn.Embedding(num_input_token_decoder, config.dim_model)
         self.encoder_cam_feat_pos_embed = ACTSinusoidalPositionEmbedding2d(config.dim_model // 2)
 
+        # num_embeddings is the number of datasets used for training (?)
+        self.dataset_index_pos_embed = nn.Embedding(
+            num_embeddings=2, embedding_dim=config.dim_model
+        )
+
         # Transformer decoder.
         # Learnable positional embedding for the transformer's decoder (in the style of DETR object queries).
         self.decoder_pos_embed = nn.Embedding(config.chunk_size, config.dim_model)
@@ -293,6 +298,9 @@ class ACT(nn.Module):
             ), "actions must be provided when using the variational objective in training mode."
 
         batch_size = batch["observation.images"].shape[0]
+
+        batch["dataset_index"] = batch["dataset_index"].unsqueeze(-1)
+
 
         # Prepare the latent for input to the transformer encoder.
         if self.config.use_vae and "action" in batch:
@@ -356,8 +364,17 @@ class ACT(nn.Module):
             robot_state_embed = self.encoder_robot_state_input_proj(batch["observation.state"])  # (B, C)
         latent_embed = self.encoder_latent_input_proj(latent_sample)  # (B, C)
 
+        assert batch["dataset_index"].ndim == 2
+        assert batch["dataset_index"].shape[0] == batch_size
+        assert batch["dataset_index"].shape[1] == 1
+        dataset_index_embed = self.dataset_index_pos_embed(
+            batch["dataset_index"]
+        ).squeeze(
+            1
+        )  # (B, C)
+
         # Stack encoder input and positional embeddings moving to (S, B, C).
-        encoder_in_feats = [latent_embed, robot_state_embed] if self.use_input_state else [latent_embed]
+        encoder_in_feats = [latent_embed, robot_state_embed, dataset_index_embed] if self.use_input_state else [latent_embed, dataset_index_embed]
         encoder_in = torch.cat(
             [
                 torch.stack(encoder_in_feats, axis=0),
@@ -368,6 +385,7 @@ class ACT(nn.Module):
             [
                 self.encoder_robot_and_latent_pos_embed.weight.unsqueeze(1),
                 cam_pos_embed.flatten(2).permute(2, 0, 1),
+                self.dataset_index_pos_embed.weight.unsqueeze(1),
             ],
             axis=0,
         )
