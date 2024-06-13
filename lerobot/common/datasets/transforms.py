@@ -1,3 +1,18 @@
+#!/usr/bin/env python
+
+# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import collections
 from typing import Any, Callable, Dict, Sequence
 
@@ -8,17 +23,16 @@ from torchvision.transforms.v2 import functional as F  # noqa: N812
 
 
 class RandomSubsetApply(Transform):
-    """
-    Apply a random subset of N transformations from a list of transformations.
+    """Apply a random subset of N transformations from a list of transformations.
 
     Args:
-        transforms (sequence or torch.nn.Module): list of transformations
-        p (list of floats or None, optional): represents the multinomial probabilities
-            (with no replacement) used for sampling the transform. If the sum of the weights is not 1, they
-            will be normalized. If ``None`` (default), all transforms have the same probability.
-        n_subset (int or None): number of transformations to apply. If ``None``,
-            all transforms are applied. Must be in [1, len(transforms)].
-        random_order (bool): apply transformations in a random order
+        transforms: list of transformations.
+        p: represents the multinomial probabilities (with no replacement) used for sampling the transform.
+            If the sum of the weights is not 1, they will be normalized. If ``None`` (default), all transforms
+            have the same probability.
+        n_subset: number of transformations to apply. If ``None``, all transforms are applied.
+            Must be in [1, len(transforms)].
+        random_order: apply transformations in a random order.
     """
 
     def __init__(
@@ -77,7 +91,12 @@ class RandomSubsetApply(Transform):
 
 class SharpnessJitter(Transform):
     """Randomly change the sharpness of an image or video.
+
     Similar to a v2.RandomAdjustSharpness with p=1 and a sharpness_factor sampled randomly.
+    While v2.RandomAdjustSharpness applies — with a given probability — a fixed sharpness_factor to an image,
+    SharpnessJitter applies a random sharpness_factor each time. This is to have a more diverse set of
+    augmentations as a result.
+
     A sharpness_factor of 0 gives a blurred image, 1 gives the original image while 2 increases the sharpness
     by a factor of 2.
 
@@ -85,9 +104,9 @@ class SharpnessJitter(Transform):
     it is expected to have [..., 1 or 3, H, W] shape, where ... means an arbitrary number of leading dimensions.
 
     Args:
-        sharpness (float or tuple of float (min, max)): How much to jitter sharpness.
-            sharpness_factor is chosen uniformly from [max(0, 1 - sharpness), 1 + sharpness]
-            or the given [min, max]. Should be non negative numbers.
+        sharpness: How much to jitter sharpness. sharpness_factor is chosen uniformly from
+            [max(0, 1 - sharpness), 1 + sharpness] or the given
+            [min, max]. Should be non negative numbers.
     """
 
     def __init__(self, sharpness: float | Sequence[float]) -> None:
