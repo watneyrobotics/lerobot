@@ -109,10 +109,9 @@ def update_policy(
     start_time = time.perf_counter()
     device = accelerator.device
     policy.train()
-    with torch.autocast(device_type=device.type) if use_amp else nullcontext():
-        output_dict = policy.forward(batch)
+    output_dict = policy.forward(batch)
         # TODO(rcadene): policy.unnormalize_outputs(out_dict)
-        loss = output_dict["loss"]
+    loss = output_dict["loss"]
         
     accelerator.backward(loss)
 
