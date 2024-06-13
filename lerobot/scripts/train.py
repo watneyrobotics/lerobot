@@ -45,9 +45,6 @@ from lerobot.common.utils.utils import (
 )
 from lerobot.scripts.eval import eval_policy
 
-from accelerate import Accelerator
-
-accelerator = Accelerator()
 
 def make_optimizer_and_scheduler(cfg, policy):
     if cfg.policy.name == "act":
@@ -103,12 +100,13 @@ def update_policy(
     grad_clip_norm,
     grad_scaler: GradScaler,
     lr_scheduler=None,
-    use_amp: bool = False,
 ):
     """Returns a dictionary of items for logging."""
     start_time = time.perf_counter()
     device = accelerator.device
+
     policy.train()
+
     output_dict = policy.forward(batch)
         # TODO(rcadene): policy.unnormalize_outputs(out_dict)
     loss = output_dict["loss"]
@@ -224,12 +222,17 @@ def log_eval_info(logger, info, step, cfg, dataset, is_offline):
 
 
 def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = None):
+
     if out_dir is None:
         raise NotImplementedError()
     if job_name is None:
         raise NotImplementedError()
 
     init_logging()
+    
+    from accelerate import Accelerator
+
+    accelerator = Accelerator()
 
     # If we are resuming a run, we need to check that a checkpoint exists in the log directory, and we need
     # to check for any differences between the provided config and the checkpoint's config.
@@ -281,8 +284,8 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     set_global_seed(cfg.seed)
 
     # Check device is available
-    device = get_safe_torch_device(cfg.device, log=True)
     device = accelerator.device
+    print(device)
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -339,16 +342,15 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
 
         if cfg.training.eval_freq > 0 and step % cfg.training.eval_freq == 0:
             logging.info(f"Eval policy at step {step}")
-            with torch.no_grad(), torch.autocast(device_type=device.type) if cfg.use_amp else nullcontext():
-                assert eval_env is not None
-                eval_info = eval_policy(
+            assert eval_env is not None
+            eval_info = eval_policy(
                     eval_env,
                     policy,
                     cfg.eval.n_episodes,
                     videos_dir=Path(out_dir) / "eval" / f"videos_step_{step_identifier}",
                     max_episodes_rendered=4,
                     start_seed=cfg.seed,
-                )
+            )
             log_eval_info(logger, eval_info["aggregated"], step, cfg, offline_dataset, is_offline=True)
             if cfg.wandb.enable:
                 logger.log_video(eval_info["video_paths"][0], step, mode="eval")
@@ -388,6 +390,8 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
         drop_last=False,
     )
     dl_iter = cycle(dataloader)
+    
+    policy.to(device)
 
     policy, optimizer, dataloader, lr_scheduler = accelerator.prepare(
         policy, optimizer, dataloader, lr_scheduler)
@@ -401,6 +405,9 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
         batch = next(dl_iter)
         dataloading_s = time.perf_counter() - start_time
 
+        for key in batch:
+            batch[key] = batch[key].to(device, non_blocking=True)
+
         train_info = update_policy(accelerator,
             policy,
             batch,
@@ -408,7 +415,6 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
             cfg.training.grad_clip_norm,
             grad_scaler=grad_scaler,
             lr_scheduler=lr_scheduler,
-            use_amp=cfg.use_amp,
         )
 
         train_info["dataloading_s"] = dataloading_s
