@@ -45,6 +45,9 @@ from lerobot.common.utils.utils import (
 )
 from lerobot.scripts.eval import eval_policy
 
+from accelerate import Accelerator
+
+accelerator = Accelerator()
 
 def make_optimizer_and_scheduler(cfg, policy):
     if cfg.policy.name == "act":
@@ -93,6 +96,7 @@ def make_optimizer_and_scheduler(cfg, policy):
 
 
 def update_policy(
+    accelerator,
     policy,
     batch,
     optimizer,
@@ -103,13 +107,14 @@ def update_policy(
 ):
     """Returns a dictionary of items for logging."""
     start_time = time.perf_counter()
-    device = get_device_from_parameters(policy)
+    device = accelerator.device
     policy.train()
     with torch.autocast(device_type=device.type) if use_amp else nullcontext():
         output_dict = policy.forward(batch)
         # TODO(rcadene): policy.unnormalize_outputs(out_dict)
         loss = output_dict["loss"]
-    grad_scaler.scale(loss).backward()
+        
+    accelerator.backward(loss)
 
     # Unscale the graident of the optimzer's assigned params in-place **prior to gradient clipping**.
     grad_scaler.unscale_(optimizer)
@@ -278,6 +283,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
 
     # Check device is available
     device = get_safe_torch_device(cfg.device, log=True)
+    device = accelerator.device
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -384,6 +390,9 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     )
     dl_iter = cycle(dataloader)
 
+    policy, optimizer, dataloader, lr_scheduler = accelerator.prepare(
+        policy, optimizer, dataloader, lr_scheduler)
+    
     policy.train()
     for _ in range(step, cfg.training.offline_steps):
         if step == 0:
@@ -393,10 +402,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
         batch = next(dl_iter)
         dataloading_s = time.perf_counter() - start_time
 
-        for key in batch:
-            batch[key] = batch[key].to(device, non_blocking=True)
-
-        train_info = update_policy(
+        train_info = update_policy(accelerator,
             policy,
             batch,
             optimizer,
