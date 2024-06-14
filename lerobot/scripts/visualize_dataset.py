@@ -30,41 +30,34 @@ Examples:
 - Visualize data stored on a local machine:
 ```
 local$ python lerobot/scripts/visualize_dataset.py \
-    --repo-id lerobot/pusht \
-    --episode-index 0
+    --repo-id lerobot/pusht
+
+local$ open http://localhost:9090
 ```
 
 - Visualize data stored on a distant machine with a local viewer:
 ```
 distant$ python lerobot/scripts/visualize_dataset.py \
+    --repo-id lerobot/pusht
+
+local$ ssh -L 9090:localhost:9090 distant  # create a ssh tunnel
+local$ open http://localhost:9090
+```
+
+- Select episodes to visualize:
+```
+python lerobot/scripts/visualize_dataset.py \
     --repo-id lerobot/pusht \
-    --episode-index 0 \
-    --save 1 \
-    --output-dir path/to/directory
-
-local$ scp distant:path/to/directory/lerobot_pusht_episode_0.rrd .
-local$ rerun lerobot_pusht_episode_0.rrd
+    --episode-indices 7 3 5 1 4
 ```
-
-- Visualize data stored on a distant machine through streaming:
-(You need to forward the websocket port to the distant machine, with
-`ssh -L 9087:localhost:9087 username@remote-host`)
-```
-distant$ python lerobot/scripts/visualize_dataset.py \
-    --repo-id lerobot/pusht \
-    --episode-index 0 \
-    --mode distant \
-    --ws-port 9087
-
-local$ rerun ws://localhost:9087
-```
-
 """
 
 import argparse
-import gc
+import http.server
 import logging
-import time
+import os
+import shutil
+import socketserver
 from pathlib import Path
 from typing import Iterator
 
@@ -73,8 +66,14 @@ import rerun as rr
 import torch
 import torch.utils.data
 import tqdm
+import yaml
+from bs4 import BeautifulSoup
+from huggingface_hub import snapshot_download
+from safetensors.torch import load_file, save_file
 
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.common.policies.act.modeling_act import ACTPolicy
+from lerobot.common.utils.utils import init_logging
 
 
 class EpisodeSampler(torch.utils.data.Sampler):
@@ -128,70 +127,104 @@ def visualize_dataset(
         sampler=episode_sampler,
     )
 
-    logging.info("Starting Rerun")
-
-    if mode not in ["local", "distant"]:
-        raise ValueError(mode)
-
-    spawn_local_viewer = mode == "local" and not save
-    rr.init(f"{repo_id}/episode_{episode_index}", spawn=spawn_local_viewer)
-
-    # Manually call python garbage collector after `rr.init` to avoid hanging in a blocking flush
-    # when iterating on a dataloader with `num_workers` > 0
-    # TODO(rcadene): remove `gc.collect` when rerun version 0.16 is out, which includes a fix
-    gc.collect()
-
-    if mode == "distant":
-        rr.serve(open_browser=False, web_port=web_port, ws_port=ws_port)
-
-    logging.info("Logging to Rerun")
-
+    logging.info("Running inference")
+    inference_results = {}
     for batch in tqdm.tqdm(dataloader, total=len(dataloader)):
-        # iterate over the batch
-        for i in range(len(batch["index"])):
-            rr.set_time_sequence("frame_index", batch["frame_index"][i].item())
-            rr.set_time_seconds("timestamp", batch["timestamp"][i].item())
+        batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
+        with torch.inference_mode():
+            output_dict = policy.forward(batch)
 
-            # display each camera image
-            for key in dataset.camera_keys:
-                # TODO(rcadene): add `.compress()`? is it lossless?
-                rr.log(key, rr.Image(to_hwc_uint8_numpy(batch[key][i])))
+        for key in output_dict:
+            if key not in inference_results:
+                inference_results[key] = []
+            inference_results[key].append(output_dict[key].to("cpu"))
 
-            # display each dimension of action space (e.g. actuators command)
-            if "action" in batch:
-                for dim_idx, val in enumerate(batch["action"][i]):
-                    rr.log(f"action/{dim_idx}", rr.Scalar(val.item()))
+    for key in inference_results:
+        inference_results[key] = torch.cat(inference_results[key])
 
-            # display each dimension of observed state space (e.g. agent position in joint space)
-            if "observation.state" in batch:
-                for dim_idx, val in enumerate(batch["observation.state"][i]):
-                    rr.log(f"state/{dim_idx}", rr.Scalar(val.item()))
+    return inference_results
 
-            if "next.done" in batch:
-                rr.log("next.done", rr.Scalar(batch["next.done"][i].item()))
 
-            if "next.reward" in batch:
-                rr.log("next.reward", rr.Scalar(batch["next.reward"][i].item()))
+def visualize_dataset(
+    repo_id: str,
+    episode_indices: list[int] = None,
+    output_dir: Path | None = None,
+    serve: bool = True,
+    port: int = 9090,
+    force_overwrite: bool = True,
+    policy_repo_id: str | None = None,
+    policy_ckpt_path: Path | None = None,
+    batch_size: int = 32,
+    num_workers: int = 4,
+) -> Path | None:
+    init_logging()
 
-            if "next.success" in batch:
-                rr.log("next.success", rr.Scalar(batch["next.success"][i].item()))
+    has_policy = policy_repo_id or policy_ckpt_path
 
-    if mode == "local" and save:
-        # save .rrd locally
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        repo_id_str = repo_id.replace("/", "_")
-        rrd_path = output_dir / f"{repo_id_str}_episode_{episode_index}.rrd"
-        rr.save(rrd_path)
-        return rrd_path
+    if has_policy:
+        logging.info("Loading policy")
+        if policy_repo_id:
+            pretrained_policy_path = Path(snapshot_download(policy_repo_id))
+        elif policy_ckpt_path:
+            pretrained_policy_path = Path(policy_ckpt_path)
+        policy = ACTPolicy.from_pretrained(pretrained_policy_path)
+        with open(pretrained_policy_path / "config.yaml") as f:
+            cfg = yaml.safe_load(f)
+        delta_timestamps = cfg["training"]["delta_timestamps"]
+    else:
+        delta_timestamps = None
 
-    elif mode == "distant":
-        # stop the process from exiting since it is serving the websocket connection
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("Ctrl-C received. Exiting.")
+    logging.info("Loading dataset")
+    dataset = LeRobotDataset(repo_id, delta_timestamps=delta_timestamps)
+
+    if not dataset.video:
+        raise NotImplementedError(f"Image datasets ({dataset.video=}) are currently not supported.")
+
+    if output_dir is None:
+        output_dir = f"outputs/visualize_dataset/{repo_id}"
+
+    output_dir = Path(output_dir)
+    if force_overwrite and output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create a simlink from the dataset video folder containg mp4 files to the output directory
+    # so that the http server can get access to the mp4 files.
+    ln_videos_dir = output_dir / "videos"
+    if not ln_videos_dir.exists():
+        ln_videos_dir.symlink_to(dataset.videos_dir.resolve())
+
+    if episode_indices is None:
+        episode_indices = list(range(dataset.num_episodes))
+
+    logging.info("Writing html")
+    ep_html_fnames = []
+    for episode_index in tqdm.tqdm(episode_indices):
+        inference_results = None
+        if has_policy:
+            inference_results_path = output_dir / f"episode_{episode_index}.safetensors"
+            if inference_results_path.exists():
+                inference_results = load_file(inference_results_path)
+            else:
+                inference_results = run_inference(dataset, episode_index, policy)
+                save_file(inference_results, inference_results_path)
+
+        # write states and actions in a csv
+        ep_csv_fname = f"episode_{episode_index}.csv"
+        write_episode_data_csv(output_dir, ep_csv_fname, episode_index, dataset, inference_results)
+
+        js_fname = f"episode_{episode_index}.js"
+        write_episode_data_js(output_dir, js_fname, ep_csv_fname, dataset)
+
+        # write a html page to view videos and timeseries
+        ep_html_fname = f"episode_{episode_index}.html"
+        write_episode_data_html(output_dir, ep_html_fname, js_fname, episode_index, dataset)
+        ep_html_fnames.append(ep_html_fname)
+
+    write_episodes_list_html(output_dir, "index.html", episode_indices, ep_html_fnames, dataset)
+
+    if serve:
+        run_server(output_dir, port)
 
 
 def main():
@@ -201,13 +234,51 @@ def main():
         "--repo-id",
         type=str,
         required=True,
-        help="Name of hugging face repositery containing a LeRobotDataset dataset (e.g. `lerobot/pusht`).",
+        help="Name of hugging face repositery containing a LeRobotDataset dataset (e.g. `lerobot/pusht` for https://huggingface.co/datasets/lerobot/pusht).",
     )
     parser.add_argument(
-        "--episode-index",
+        "--episode-indices",
         type=int,
-        required=True,
-        help="Episode to visualize.",
+        nargs="*",
+        default=None,
+        help="Episode indices to visualize (e.g. `0 1 5 6` to load episodes of index 0, 1, 5 and 6). By default loads all episodes.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Directory path to write html files and kickoff a web server. By default write them to 'outputs/visualize_dataset/REPO_ID'.",
+    )
+    parser.add_argument(
+        "--serve",
+        type=int,
+        default=1,
+        help="Launch web server.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=9090,
+        help="Web port used by the http server.",
+    )
+    parser.add_argument(
+        "--force-overwrite",
+        type=int,
+        default=1,
+        help="Delete the output directory if it exists already.",
+    )
+
+    parser.add_argument(
+        "--policy-repo-id",
+        type=str,
+        default=None,
+        help="Name of hugging face repositery containing a pretrained policy (e.g. `lerobot/diffusion_pusht` for https://huggingface.co/lerobot/diffusion_pusht).",
+    )
+    parser.add_argument(
+        "--policy-ckpt-path",
+        type=str,
+        default=None,
+        help="Name of hugging face repositery containing a pretrained policy (e.g. `lerobot/diffusion_pusht` for https://huggingface.co/lerobot/diffusion_pusht).",
     )
     parser.add_argument(
         "--batch-size",

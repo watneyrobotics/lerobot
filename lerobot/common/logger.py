@@ -43,7 +43,7 @@ def cfg_to_group(cfg: DictConfig, return_list: bool = False) -> list[str] | str:
     """Return a group name for logging. Optionally returns group name as list."""
     lst = [
         f"policy:{cfg.policy.name}",
-        f"dataset:{cfg.dataset_repo_id}",
+        # f"dataset:{cfg.dataset_repo_id}",  # TODO(now): Handle multiple datasets
         f"env:{cfg.env.name}",
         f"seed:{cfg.seed}",
     ]
@@ -233,9 +233,6 @@ class Logger:
         if self._wandb is not None:
             for k, v in d.items():
                 if not isinstance(v, (int, float, str)):
-                    logging.warning(
-                        f'WandB logging of key "{k}" was ignored as its type is not handled by this wrapper.'
-                    )
                     continue
                 self._wandb.log({f"{mode}/{k}": v}, step=step)
 

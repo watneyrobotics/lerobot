@@ -139,25 +139,26 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
         batch = self.normalize_targets(batch)
         actions_hat, (mu_hat, log_sigma_x2_hat) = self.model(batch)
 
-        l1_loss = (
-            F.l1_loss(batch["action"], actions_hat, reduction="none") * ~batch["action_is_pad"].unsqueeze(-1)
-        ).mean()
+        bsize = actions_hat.shape[0]
+        l1_loss = F.l1_loss(batch["action"], actions_hat, reduction="none")
+        l1_loss = l1_loss * ~batch["action_is_pad"].unsqueeze(-1)
+        l1_loss = l1_loss.view(bsize, -1).mean(dim=1)
 
-        loss_dict = {"l1_loss": l1_loss.item()}
+        out_dict = {}
+        out_dict["l1_loss"] = l1_loss
+
         if self.config.use_vae:
             # Calculate Dₖₗ(latent_pdf || standard_normal). Note: After computing the KL-divergence for
             # each dimension independently, we sum over the latent dimension to get the total
             # KL-divergence per batch element, then take the mean over the batch.
             # (See App. B of https://arxiv.org/abs/1312.6114 for more details).
-            mean_kld = (
-                (-0.5 * (1 + log_sigma_x2_hat - mu_hat.pow(2) - (log_sigma_x2_hat).exp())).sum(-1).mean()
-            )
-            loss_dict["kld_loss"] = mean_kld.item()
-            loss_dict["loss"] = l1_loss + mean_kld * self.config.kl_weight
+            kld_loss = (-0.5 * (1 + log_sigma_x2_hat - mu_hat.pow(2) - (log_sigma_x2_hat).exp())).sum(-1)
+            out_dict["loss"] = l1_loss + kld_loss * self.config.kl_weight
         else:
-            loss_dict["loss"] = l1_loss
+            out_dict["loss"] = l1_loss
 
-        return loss_dict
+        out_dict["action"] = self.unnormalize_outputs({"action": actions_hat})["action"]
+        return out_dict
 
 
 class ACT(nn.Module):
@@ -241,18 +242,32 @@ class ACT(nn.Module):
         self.decoder = ACTDecoder(config)
 
         # Transformer encoder input projections. The tokens will be structured like
-        # [latent, robot_state, image_feature_map_pixels].
+        # [latent; (maybe) robot_state; (maybe) dataset_index; image_feature_map_pixels].
+        # Latent projection.
+        self.encoder_latent_input_proj = nn.Linear(config.latent_dim, config.dim_model)
+        # Robot state projection.
         if self.use_input_state:
             self.encoder_robot_state_input_proj = nn.Linear(
                 config.input_shapes["observation.state"][0], config.dim_model
             )
-        self.encoder_latent_input_proj = nn.Linear(config.latent_dim, config.dim_model)
+        # Dataset index embedding.
+        if "dataset_index" in config.input_shapes:
+            # TODO(now): Don't hard code `num_embeddings`.
+            self.dataset_index_embed = nn.Embedding(num_embeddings=2, embedding_dim=config.dim_model)
+        # Image feature projection.
         self.encoder_img_feat_input_proj = nn.Conv2d(
             backbone_model.fc.in_features, config.dim_model, kernel_size=1
         )
         # Transformer encoder positional embeddings.
-        num_input_token_decoder = 2 if self.use_input_state else 1
-        self.encoder_robot_and_latent_pos_embed = nn.Embedding(num_input_token_decoder, config.dim_model)
+        num_input_token_decoder = 1
+        if self.use_input_state:
+            num_input_token_decoder += 1
+        if "dataset_index" in config.input_shapes:
+            # Note: Although the dataset index is already embedded with nn.Embedding, we also add a positional
+            # embedding with nn.Embedding. This is technically redundant, but stays in line with the idea that
+            # each token constitutes a feature embedding and an added positional embedding.
+            num_input_token_decoder += 1
+        self.encoder_standalone_token_embeddings = nn.Embedding(num_input_token_decoder, config.dim_model)
         self.encoder_cam_feat_pos_embed = ACTSinusoidalPositionEmbedding2d(config.dim_model // 2)
 
         # Transformer decoder.
@@ -333,12 +348,23 @@ class ACT(nn.Module):
                 batch["observation.state"].device
             )
 
-        # Prepare all other transformer encoder inputs.
+        # Prepare transformer encoder inputs.
+
+        # Latent.
+        latent_embed = self.encoder_latent_input_proj(latent_sample)  # (B, C)
+
+        # Robot state.
+        if self.use_input_state:
+            robot_state_embed = self.encoder_robot_state_input_proj(batch["observation.state"])  # (B, C)
+
+        # Dataset index.
+        if "dataset_index" in self.config.input_shapes:
+            dataset_index_embed = self.dataset_index_embed(batch["dataset_index"]).squeeze(1)  # (B, C)
+
         # Camera observation features and positional embeddings.
         all_cam_features = []
         all_cam_pos_embeds = []
         images = batch["observation.images"]
-
         for cam_index in range(images.shape[-4]):
             cam_features = self.backbone(images[:, cam_index])["feature_map"]
             # TODO(rcadene, alexander-soare): remove call to `.to` to speedup forward ; precompute and use buffer
@@ -347,26 +373,31 @@ class ACT(nn.Module):
             all_cam_features.append(cam_features)
             all_cam_pos_embeds.append(cam_pos_embed)
         # Concatenate camera observation feature maps and positional embeddings along the width dimension.
-        encoder_in = torch.cat(all_cam_features, axis=-1)
-        cam_pos_embed = torch.cat(all_cam_pos_embeds, axis=-1)
+        all_cam_features = torch.cat(all_cam_features, axis=-1)  # (B, C, h, num_cams * w)
+        # Note: Flatten camera features to a 1D sequence.
+        einops.rearrange(all_cam_features, "b c h w -> (h w) b c")  # (S, B ,C)
 
-        # Get positional embeddings for robot state and latent.
+        # Stack encoder input tokens:
+        # [latent; (maybe) robot_state; (maybe) dataset_index; image_feature_map_pixels].
+        standalone_tokens = [latent_embed]
         if self.use_input_state:
-            robot_state_embed = self.encoder_robot_state_input_proj(batch["observation.state"])  # (B, C)
-        latent_embed = self.encoder_latent_input_proj(latent_sample)  # (B, C)
-
-        # Stack encoder input and positional embeddings moving to (S, B, C).
-        encoder_in_feats = [latent_embed, robot_state_embed] if self.use_input_state else [latent_embed]
+            standalone_tokens.append(robot_state_embed)
+        if "dataset_index" in self.config.input_shapes:
+            standalone_tokens.append(dataset_index_embed)
         encoder_in = torch.cat(
             [
-                torch.stack(encoder_in_feats, axis=0),
-                einops.rearrange(encoder_in, "b c h w -> (h w) b c"),
-            ]
-        )
+                torch.stack(standalone_tokens, axis=0),
+                einops.rearrange(all_cam_features, "b c h w -> (h w) b c"),
+            ],
+            dim=0,
+        )  # (S, B, C)
+
+        # Stack transformer encoder positional embeddings.
+        cam_pos_embed = torch.cat(all_cam_pos_embeds, axis=-1)
         pos_embed = torch.cat(
             [
-                self.encoder_robot_and_latent_pos_embed.weight.unsqueeze(1),
-                cam_pos_embed.flatten(2).permute(2, 0, 1),
+                self.encoder_standalone_token_embeddings.weight.unsqueeze(1),
+                einops.rearrange(cam_pos_embed, "b c h w -> (h w) b c"),
             ],
             axis=0,
         )
