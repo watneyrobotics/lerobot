@@ -45,6 +45,9 @@ from lerobot.common.utils.utils import (
 )
 from lerobot.scripts.eval import eval_policy
 
+from accelerate.utils import set_seed
+
+set_seed(0)
 
 def make_optimizer_and_scheduler(cfg, policy):
     if cfg.policy.name == "act":
@@ -116,15 +119,11 @@ def update_policy(
     # Unscale the graident of the optimzer's assigned params in-place **prior to gradient clipping**.
     grad_scaler.unscale_(optimizer)
 
-    grad_norm = torch.nn.utils.clip_grad_norm_(
-        policy.parameters(),
-        grad_clip_norm,
-        error_if_nonfinite=False,
-    )
-
+    grad_norm = accelerator.clip_grad_norm_(policy.parameters(), grad_clip_norm)
     # Optimizer's gradients are already unscaled, so scaler.step does not unscale them,
     # although it still skips optimizer.step() if the gradients contain infs or NaNs.
     grad_scaler.step(optimizer)
+
     # Updates the scale for next iteration.
     grad_scaler.update()
 
@@ -232,7 +231,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     
     from accelerate import Accelerator
 
-    accelerator = Accelerator()
+    accelerator = Accelerator(gradient_accumulation_steps=2)
 
     # If we are resuming a run, we need to check that a checkpoint exists in the log directory, and we need
     # to check for any differences between the provided config and the checkpoint's config.
@@ -402,22 +401,24 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
             logging.info("Start offline training on a fixed dataset")
 
         start_time = time.perf_counter()
-        batch = next(dl_iter)
-        dataloading_s = time.perf_counter() - start_time
 
-        for key in batch:
-            batch[key] = batch[key].to(device, non_blocking=True)
+        with accelerator.accumulate(policy):
+            batch = next(dl_iter)
+            dataloading_s = time.perf_counter() - start_time
 
-        train_info = update_policy(accelerator,
-            policy,
-            batch,
-            optimizer,
-            cfg.training.grad_clip_norm,
-            grad_scaler=grad_scaler,
-            lr_scheduler=lr_scheduler,
-        )
+            for key in batch:
+                batch[key] = batch[key].to(device, non_blocking=True)
 
-        train_info["dataloading_s"] = dataloading_s
+            train_info = update_policy(accelerator,
+                policy,
+                batch,
+                optimizer,
+                cfg.training.grad_clip_norm,
+                grad_scaler=grad_scaler,
+                lr_scheduler=lr_scheduler,
+            )
+
+            train_info["dataloading_s"] = dataloading_s
 
         if step % cfg.training.log_freq == 0:
             log_train_info(logger, train_info, step, cfg, offline_dataset, is_offline=True)
@@ -431,6 +432,8 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     if eval_env:
         eval_env.close()
     logging.info("End of training")
+    accelerator.wait_for_everyone()
+    policy = accelerator.unwrap_model(policy)
 
 
 @hydra.main(version_base="1.2", config_name="default", config_path="../configs")
