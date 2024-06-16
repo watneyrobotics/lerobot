@@ -229,9 +229,6 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
 
     init_logging()
     
-    from accelerate import Accelerator
-
-    accelerator = Accelerator(gradient_accumulation_steps=2)
 
     # If we are resuming a run, we need to check that a checkpoint exists in the log directory, and we need
     # to check for any differences between the provided config and the checkpoint's config.
@@ -283,8 +280,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     set_global_seed(cfg.seed)
 
     # Check device is available
-    device = accelerator.device
-    print(device)
+    device = cfg.device
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -391,34 +387,25 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     dl_iter = cycle(dataloader)
     
     policy.to(device)
-
-    policy, optimizer, dataloader, lr_scheduler = accelerator.prepare(
-        policy, optimizer, dataloader, lr_scheduler)
     
     policy.train()
     for _ in range(step, cfg.training.offline_steps):
         if step == 0:
             logging.info("Start offline training on a fixed dataset")
-
         start_time = time.perf_counter()
-
-        with accelerator.accumulate(policy):
-            batch = next(dl_iter)
-            dataloading_s = time.perf_counter() - start_time
-
-            for key in batch:
-                batch[key] = batch[key].to(device, non_blocking=True)
-
-            train_info = update_policy(accelerator,
-                policy,
-                batch,
-                optimizer,
-                cfg.training.grad_clip_norm,
-                grad_scaler=grad_scaler,
-                lr_scheduler=lr_scheduler,
-            )
-
-            train_info["dataloading_s"] = dataloading_s
+        batch = next(dl_iter)
+        dataloading_s = time.perf_counter() - start_time
+        for key in batch:
+            batch[key] = batch[key].to(device, non_blocking=True)
+        train_info = update_policy(
+            policy,
+            batch,
+            optimizer,
+            cfg.training.grad_clip_norm,
+            grad_scaler=grad_scaler,
+            lr_scheduler=lr_scheduler,
+        )
+        train_info["dataloading_s"] = dataloading_s
 
         if step % cfg.training.log_freq == 0:
             log_train_info(logger, train_info, step, cfg, offline_dataset, is_offline=True)
@@ -432,8 +419,6 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     if eval_env:
         eval_env.close()
     logging.info("End of training")
-    accelerator.wait_for_everyone()
-    policy = accelerator.unwrap_model(policy)
 
 
 @hydra.main(version_base="1.2", config_name="default", config_path="../configs")
