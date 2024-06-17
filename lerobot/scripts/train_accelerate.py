@@ -137,7 +137,6 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
                         max_episodes_rendered=4,
                         enable_progbar=True,
                         start_seed=cfg.seed,
-                        device=device,
                     )
 
                     for k, v in eval_info.items():
