@@ -8,6 +8,7 @@ import torch.utils
 
 from lerobot.common.utils.utils import set_global_seed, format_big_number
 from lerobot.common.datasets.factory import make_dataset
+from lerobot.common.datasets.lerobot_dataset import MultiLeRobotDataset, LeRobotDataset
 from lerobot.common.policies.factory import make_policy
 from lerobot.common.envs.factory import make_env
 
@@ -38,13 +39,16 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
     # Check device is available
     device = accelerator.device
     print(device)
-
+    
     set_global_seed(cfg.seed)
     accelerator.print(f"Global seed set to {cfg.seed}")
 
     
     offline_dataset = make_dataset(cfg)
+    print(cfg.dataset_repo_id)
     accelerator.print(f"Dataset loaded with {len(offline_dataset)} samples")
+    if isinstance(offline_dataset, MultiLeRobotDataset):
+        accelerator.print(f"Multiple datasets were provided. Applied the following index mapping to the provided datasets: {(offline_dataset.repo_id_to_index)}")
 
     eval_env = None
     if cfg.training.eval_freq > 0:
