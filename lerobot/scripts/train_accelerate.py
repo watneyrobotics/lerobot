@@ -109,7 +109,8 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
 
             output_dict = policy.forward(batch)
-            loss = output_dict["loss"]
+            # mean() is needed
+            loss = output_dict["loss"].mean()
             accelerator.backward(loss)
             optimizer.step()
             optimizer.zero_grad()
