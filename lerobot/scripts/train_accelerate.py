@@ -25,8 +25,8 @@ output_directory.mkdir(parents=True, exist_ok=True)
 pretrained_model_dir_name = "pretrained_model"
 training_state_file_name = "training_state.pth"
 
-def train(cfg, job_name, resume_checkpoint=None):
-    out_dir = Path(cfg.hydra.run.dir)
+def train(cfg, job_name, out_dir, resume_checkpoint=None):
+    out_dir=Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     accelerator = Accelerator(log_with="wandb")
@@ -126,23 +126,27 @@ def train(cfg, job_name, resume_checkpoint=None):
                 OmegaConf.save(cfg, save_dir / "config.yaml")
             
             if step % cfg.training.eval_freq == 0:
-                accelerator.print(f"Evaluating policy on process {accelerator.local_process_index}")
-                policy.eval()
+                accelerator.print(f"Evaluating policy from process {accelerator.local_process_index}")
                 with torch.no_grad():
+                    accelerator.wait_for_everyone()
                     eval_info = eval_policy(
                         eval_env,
                         policy,
                         cfg.eval.n_episodes,
                         videos_dir=out_dir/ "eval" / f"videos_step_{step_identifier}",
                         max_episodes_rendered=4,
+                        enable_progbar=True,
                         start_seed=cfg.seed,
+                        device=device,
                     )
 
                     for k, v in eval_info.items():
+                        accelerator.print({f"eval/{k}": v}, step=step+1)
                         if not isinstance(v, (int, float)):
                             accelerator.print(f"Skipping {k} from logging because it is not a scalar")
                             continue
                         accelerator.log({f"eval/{k}": v}, step=step+1)
+                    accelerator.print(f"Evaluated policy from process {accelerator.local_process_index}")
                     
             
             step += 1
@@ -157,7 +161,8 @@ def train(cfg, job_name, resume_checkpoint=None):
 def train_cli(cfg: dict):
     train(
         cfg,
-        job_name=hydra.core.hydra_config.HydraConfig.get().job.name, 
+        job_name=hydra.core.hydra_config.HydraConfig.get().job.name,
+        out_dir=hydra.core.hydra_config.HydraConfig.get().run.dir,
         resume_checkpoint=None
     )
 
