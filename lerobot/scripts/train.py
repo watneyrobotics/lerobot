@@ -15,12 +15,12 @@
 # limitations under the License.
 import logging
 import time
-from contextlib import nullcontext
 from pathlib import Path
 from pprint import pformat
 
 import hydra
 import torch
+from accelerate.utils import set_seed
 from deepdiff import DeepDiff
 from omegaconf import DictConfig, OmegaConf
 from termcolor import colored
@@ -35,19 +35,16 @@ from lerobot.common.envs.factory import make_env
 from lerobot.common.logger import Logger, log_output_dir
 from lerobot.common.policies.factory import make_policy
 from lerobot.common.policies.policy_protocol import PolicyWithUpdate
-from lerobot.common.policies.utils import get_device_from_parameters
 from lerobot.common.utils.utils import (
     format_big_number,
-    get_safe_torch_device,
     init_hydra_config,
     init_logging,
     set_global_seed,
 )
 from lerobot.scripts.eval import eval_policy
 
-from accelerate.utils import set_seed
-
 set_seed(0)
+
 
 def make_optimizer_and_scheduler(cfg, policy):
     if cfg.policy.name == "act":
@@ -111,10 +108,9 @@ def update_policy(
     policy.train()
 
     output_dict = policy.forward(batch)
-        # TODO(rcadene): policy.unnormalize_outputs(out_dict)
-    loss = output_dict["loss"]
-        
-    accelerator.backward(loss)
+    # TODO(rcadene): policy.unnormalize_outputs(out_dict)
+    loss = output_dict["loss"].mean()
+    grad_scaler.scale(loss).backward()
 
     # Unscale the graident of the optimzer's assigned params in-place **prior to gradient clipping**.
     grad_scaler.unscale_(optimizer)
@@ -221,14 +217,12 @@ def log_eval_info(logger, info, step, cfg, dataset, is_offline):
 
 
 def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = None):
-
     if out_dir is None:
         raise NotImplementedError()
     if job_name is None:
         raise NotImplementedError()
 
     init_logging()
-    
 
     # If we are resuming a run, we need to check that a checkpoint exists in the log directory, and we need
     # to check for any differences between the provided config and the checkpoint's config.
@@ -339,12 +333,12 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
             logging.info(f"Eval policy at step {step}")
             assert eval_env is not None
             eval_info = eval_policy(
-                    eval_env,
-                    policy,
-                    cfg.eval.n_episodes,
-                    videos_dir=Path(out_dir) / "eval" / f"videos_step_{step_identifier}",
-                    max_episodes_rendered=4,
-                    start_seed=cfg.seed,
+                eval_env,
+                policy,
+                cfg.eval.n_episodes,
+                videos_dir=Path(out_dir) / "eval" / f"videos_step_{step_identifier}",
+                max_episodes_rendered=4,
+                start_seed=cfg.seed,
             )
             log_eval_info(logger, eval_info["aggregated"], step, cfg, offline_dataset, is_offline=True)
             if cfg.wandb.enable:
@@ -385,9 +379,9 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
         drop_last=False,
     )
     dl_iter = cycle(dataloader)
-    
+
     policy.to(device)
-    
+
     policy.train()
     for _ in range(step, cfg.training.offline_steps):
         if step == 0:
