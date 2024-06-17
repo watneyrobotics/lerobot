@@ -6,7 +6,7 @@ import os
 import torch
 import torch.utils
 
-from lerobot.common.utils.utils import set_global_seed
+from lerobot.common.utils.utils import set_global_seed, format_big_number
 from lerobot.common.datasets.factory import make_dataset
 from lerobot.common.policies.factory import make_policy
 from lerobot.common.envs.factory import make_env
@@ -27,7 +27,7 @@ training_state_file_name = "training_state.pth"
 
 def train(cfg, job_name, resume_checkpoint=None):
     out_dir = Path(cfg.hydra.run.dir)
-    output_directory.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     accelerator = Accelerator(log_with="wandb")
 
@@ -120,24 +120,30 @@ def train(cfg, job_name, resume_checkpoint=None):
             if step % cfg.training.save_freq == 0:
                 _num_digits = max(6, len(str(cfg.training.offline_steps + cfg.training.online_steps)))
                 step_identifier = f"{step:0{_num_digits}d}"
-                save_dir = output_directory / step_identifier
+                save_dir = out_dir / step_identifier
                 accelerator.print(f"Saving state to {save_dir}")
                 accelerator.save_state(save_dir)
                 OmegaConf.save(cfg, save_dir / "config.yaml")
             
             if step % cfg.training.eval_freq == 0:
-                accelerator.print("Evaluating policy")
+                accelerator.print(f"Evaluating policy on process {accelerator.local_process_index}")
                 policy.eval()
                 with torch.no_grad():
                     eval_info = eval_policy(
                         eval_env,
                         policy,
                         cfg.eval.n_episodes,
-                        videos_dir=output_directory/ "eval" / f"videos_step_{step_identifier}",
+                        videos_dir=out_dir/ "eval" / f"videos_step_{step_identifier}",
                         max_episodes_rendered=4,
                         start_seed=cfg.seed,
                     )
-                    pass
+
+                    for k, v in eval_info.items():
+                        if not isinstance(v, (int, float)):
+                            accelerator.print(f"Skipping {k} from logging because it is not a scalar")
+                            continue
+                        accelerator.log({f"eval/{k}": v}, step=step+1)
+                    
             
             step += 1
 
@@ -152,7 +158,7 @@ def train_cli(cfg: dict):
     train(
         cfg,
         job_name=hydra.core.hydra_config.HydraConfig.get().job.name, 
-        resume_checkpoint="/admin/home/marina_barannikov/projects/lerobot/outputs/train/example_accelerated_act/005000"
+        resume_checkpoint=None
     )
 
 if __name__ == "__main__":
