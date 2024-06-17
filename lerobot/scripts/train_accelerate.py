@@ -9,21 +9,26 @@ import torch.utils
 from lerobot.common.utils.utils import set_global_seed
 from lerobot.common.datasets.factory import make_dataset
 from lerobot.common.policies.factory import make_policy
+from lerobot.common.envs.factory import make_env
 
 from lerobot.scripts.train import make_optimizer_and_scheduler
+from lerobot.scripts.eval import eval_policy
 
 from accelerate import Accelerator
 
 from omegaconf import OmegaConf
 
 # Create a directory to store the training checkpoint.
-output_directory = Path("outputs/train/example_accelerated_act")
+output_directory = Path("/fsx/marina_barannikov/outputs/train/mixed_precision_test_accelerated_act")
 output_directory.mkdir(parents=True, exist_ok=True)
 
 pretrained_model_dir_name = "pretrained_model"
 training_state_file_name = "training_state.pth"
 
 def train(cfg, job_name, resume_checkpoint=None):
+    out_dir = Path(cfg.hydra.run.dir)
+    output_directory.mkdir(parents=True, exist_ok=True)
+
     accelerator = Accelerator(log_with="wandb")
 
     accelerator.init_trackers(
@@ -37,8 +42,14 @@ def train(cfg, job_name, resume_checkpoint=None):
     set_global_seed(cfg.seed)
     accelerator.print(f"Global seed set to {cfg.seed}")
 
+    
     offline_dataset = make_dataset(cfg)
     accelerator.print(f"Dataset loaded with {len(offline_dataset)} samples")
+
+    eval_env = None
+    if cfg.training.eval_freq > 0:
+        accelerator.print("make_env")
+        eval_env = make_env(cfg)
 
     policy = make_policy(cfg, dataset_stats=offline_dataset.stats)
 
@@ -84,6 +95,7 @@ def train(cfg, job_name, resume_checkpoint=None):
         if resume_step>step and len(train_dataloader)%resume_step != 0 :
             # We need to skip steps until we reach the resumed step
             active_dataloader = accelerator.skip_first_batches(train_dataloader, resume_step)
+            accelerator.print(f"Skipping {resume_step} steps in the dataloader.")
             step += resume_step
         else:
             # After the first iteration though, we need to go back to the original dataloader
@@ -111,7 +123,21 @@ def train(cfg, job_name, resume_checkpoint=None):
                 save_dir = output_directory / step_identifier
                 accelerator.print(f"Saving state to {save_dir}")
                 accelerator.save_state(save_dir)
-                OmegaConf.save(save_dir / "config.yaml")
+                OmegaConf.save(cfg, save_dir / "config.yaml")
+            
+            if step % cfg.training.eval_freq == 0:
+                accelerator.print("Evaluating policy")
+                policy.eval()
+                with torch.no_grad():
+                    eval_info = eval_policy(
+                        eval_env,
+                        policy,
+                        cfg.eval.n_episodes,
+                        videos_dir=output_directory/ "eval" / f"videos_step_{step_identifier}",
+                        max_episodes_rendered=4,
+                        start_seed=cfg.seed,
+                    )
+                    pass
             
             step += 1
 
