@@ -252,8 +252,10 @@ class ACT(nn.Module):
             )
         # Dataset index embedding.
         if "dataset_index" in config.input_shapes:
-            # TODO(now): Don't hard code `num_embeddings`.
-            self.dataset_index_embed = nn.Embedding(num_embeddings=2, embedding_dim=config.dim_model)
+            # create a FiLM layer to condition on dataset index
+            self.film_layer = FiLMLayer(config.dim_model, num_relations=1)
+
+
         # Image feature projection.
         self.encoder_img_feat_input_proj = nn.Conv2d(
             backbone_model.fc.in_features, config.dim_model, kernel_size=1
@@ -294,6 +296,7 @@ class ACT(nn.Module):
             "observation.state": (B, state_dim) batch of robot states.
             "observation.images": (B, n_cameras, C, H, W) batch of images.
             "action" (optional, only if training with VAE): (B, chunk_size, action dim) batch of actions.
+            "dataset_index" (optional): (B, 1) batch of dataset indices.
         }
 
         Returns:
@@ -358,16 +361,19 @@ class ACT(nn.Module):
             robot_state_embed = self.encoder_robot_state_input_proj(batch["observation.state"])  # (B, C)
 
         # Dataset index.
-        if "dataset_index" in self.config.input_shapes:
-            dataset_index_embed = self.dataset_index_embed(batch["dataset_index"]).squeeze(1)  # (B, C)
-
         # Camera observation features and positional embeddings.
         all_cam_features = []
         all_cam_pos_embeds = []
         images = batch["observation.images"]
         for cam_index in range(images.shape[-4]):
+            # Apply FiLM layer to condition on dataset index.
+            if "dataset_index" in self.config.input_shapes:
+                dataset_index_token = batch["dataset_index"]
+                images[:, cam_index] = self.film_layer(images[:, cam_index], dataset_index_token)
             cam_features = self.backbone(images[:, cam_index])["feature_map"]
+
             # TODO(rcadene, alexander-soare): remove call to `.to` to speedup forward ; precompute and use buffer
+
             cam_pos_embed = self.encoder_cam_feat_pos_embed(cam_features).to(dtype=cam_features.dtype)
             cam_features = self.encoder_img_feat_input_proj(cam_features)  # (B, C, h, w)
             all_cam_features.append(cam_features)
@@ -382,8 +388,7 @@ class ACT(nn.Module):
         standalone_tokens = [latent_embed]
         if self.use_input_state:
             standalone_tokens.append(robot_state_embed)
-        if "dataset_index" in self.config.input_shapes:
-            standalone_tokens.append(dataset_index_embed)
+
         encoder_in = torch.cat(
             [
                 torch.stack(standalone_tokens, axis=0),
@@ -654,3 +659,17 @@ def get_activation_fn(activation: str) -> Callable:
     if activation == "glu":
         return F.glu
     raise RuntimeError(f"activation should be relu/gelu/glu, not {activation}.")
+
+
+class FiLMLayer(nn.Module):
+    def __init__(self, input_dim, num_relations):
+        super().__init__()
+        self.gamma_linear = nn.Linear(num_relations, input_dim)
+        self.beta_linear = nn.Linear(num_relations, input_dim)
+
+    def forward(self, x, dataset_index_token):
+        gamma = self.gamma_linear(dataset_index_token)
+        beta = self.beta_linear(dataset_index_token)
+        conditioned_x = gamma * x + beta
+
+        return conditioned_x
