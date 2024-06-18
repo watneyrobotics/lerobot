@@ -547,7 +547,7 @@ def main(
 
     if not isinstance(hydra_cfg.dataset_repo_id, str):
         dataset_index=int(dataset_index)
-        logging.info(f"Detected multiple datasets. Evaluation will be done on the dataset : {dataset_index}.")
+        logging.info(f"Detected multiple datasets. Evaluation will be done on the dataset : {dataset_index}, which is {hydra_cfg.dataset_repo_id[dataset_index]}.")
         if dataset_index is None:
             logging.info("No dataset_index parameter detected for evaluation. Defaulting to 0.")
             dataset_index = 0
