@@ -130,7 +130,7 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
                 accelerator.save_state(save_dir)
                 OmegaConf.save(cfg, save_dir / "config.yaml")
             
-            if step % cfg.training.eval_freq == 0:
+            if cfg.training.eval_freq > 0 and step % cfg.training.eval_freq == 0:
                 accelerator.print(f"Evaluating policy from process {accelerator.local_process_index}")
                 with torch.no_grad():
                     accelerator.wait_for_everyone()
@@ -142,7 +142,6 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
                         max_episodes_rendered=4,
                         enable_progbar=True,
                         start_seed=cfg.seed,
-                        device=device,
                     )
 
                     for k, v in eval_info.items():
