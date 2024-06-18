@@ -87,7 +87,7 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
             self._action_queue = deque([], maxlen=self.config.n_action_steps)
 
     @torch.no_grad
-    def select_action(self, batch: dict[str, Tensor]) -> Tensor:
+    def select_action(self, batch: dict[str, Tensor], dataset_index=None) -> Tensor:
         """Select a single action given environment observations.
 
         This method wraps `select_actions` in order to return one action at a time for execution in the
@@ -98,6 +98,9 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
 
         batch = self.normalize_inputs(batch)
         batch["observation.images"] = torch.stack([batch[k] for k in self.expected_image_keys], dim=-4)
+        
+        if "dataset_index" in self.config.input_shapes:
+            batch["dataset_index"] = torch.full_like(batch["observation.images"][:, 0, 0, 0, 0], dataset_index, dtype=torch.long)
 
         # If we are doing temporal ensembling, keep track of the exponential moving average (EMA), and return
         # the first action.
