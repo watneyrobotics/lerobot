@@ -253,7 +253,7 @@ class ACT(nn.Module):
         # Dataset index embedding.
         if "dataset_index" in config.input_shapes:
             # create a FiLM layer to condition on dataset index
-            self.film_layer = FiLMLayer(config.dim_model, num_relations=1)
+            self.film_layer = FiLMLayer(num_relations=1, out_features=3)
 
 
         # Image feature projection.
@@ -264,11 +264,7 @@ class ACT(nn.Module):
         num_input_token_decoder = 1
         if self.use_input_state:
             num_input_token_decoder += 1
-        if "dataset_index" in config.input_shapes:
-            # Note: Although the dataset index is already embedded with nn.Embedding, we also add a positional
-            # embedding with nn.Embedding. This is technically redundant, but stays in line with the idea that
-            # each token constitutes a feature embedding and an added positional embedding.
-            num_input_token_decoder += 1
+
         self.encoder_standalone_token_embeddings = nn.Embedding(num_input_token_decoder, config.dim_model)
         self.encoder_cam_feat_pos_embed = ACTSinusoidalPositionEmbedding2d(config.dim_model // 2)
 
@@ -369,8 +365,8 @@ class ACT(nn.Module):
             # Apply FiLM layer to condition on dataset index.
             if "dataset_index" in self.config.input_shapes:
                 dataset_index_token = batch["dataset_index"]
-                images[:, cam_index] = self.film_layer(images[:, cam_index], dataset_index_token)
-            cam_features = self.backbone(images[:, cam_index])["feature_map"]
+                film_output = self.film_layer(images[:, cam_index], dataset_index_token)
+            cam_features = self.backbone(film_output)["feature_map"]
 
             # TODO(rcadene, alexander-soare): remove call to `.to` to speedup forward ; precompute and use buffer
 
@@ -662,14 +658,19 @@ def get_activation_fn(activation: str) -> Callable:
 
 
 class FiLMLayer(nn.Module):
-    def __init__(self, input_dim, num_relations):
+    def __init__(self, out_features, num_relations):
         super().__init__()
-        self.gamma_linear = nn.Linear(num_relations, input_dim)
-        self.beta_linear = nn.Linear(num_relations, input_dim)
+        self.gamma_linear = nn.Linear(num_relations, out_features=3)
+        self.beta_linear = nn.Linear(num_relations, out_features=3)
 
     def forward(self, x, dataset_index_token):
+        dataset_index_token = torch.tensor(dataset_index_token, dtype=torch.float32)
+        dataset_index_token = dataset_index_token.unsqueeze(-1)
+
         gamma = self.gamma_linear(dataset_index_token)
         beta = self.beta_linear(dataset_index_token)
+        gamma = gamma.unsqueeze(2).unsqueeze(3).expand_as(x)
+        beta = beta.unsqueeze(2).unsqueeze(3).expand_as(x)
         conditioned_x = gamma * x + beta
 
         return conditioned_x
