@@ -152,7 +152,7 @@ def rollout(
             all_observations.append(deepcopy(observation))
 
         if dataset_index is not None:
-            observation["dataset_index"] = torch.full_like(observation["observation.images"][:, 0, 0, 0, 0], fill_value=dataset_index, dtype=torch.long)
+            observation["dataset_index"] = torch.full_like(observation["observation.state"][:, 0,], fill_value=dataset_index, dtype=torch.long)
 
         observation = {key: observation[key].to(device, non_blocking=True) for key in observation}
 
@@ -546,6 +546,7 @@ def main(
         out_dir = f"outputs/eval/{dt.now().strftime('%Y-%m-%d/%H-%M-%S')}_{hydra_cfg.env.name}_{hydra_cfg.policy.name}"
 
     if not isinstance(hydra_cfg.dataset_repo_id, str):
+        dataset_index=int(dataset_index)
         logging.info(f"Detected multiple datasets. Evaluation will be done on the dataset : {dataset_index}.")
         if dataset_index is None:
             logging.info("No dataset_index parameter detected for evaluation. Defaulting to 0.")
