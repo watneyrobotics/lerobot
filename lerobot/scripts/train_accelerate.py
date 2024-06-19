@@ -153,7 +153,10 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
             if step > cfg.training.offline_steps:
                 done = True
                 break
-
+            
+    unwrapped_policy = accelerator.unwrap_model(policy)
+    unwrapped_policy.save_pretrained(out_dir / "final")
+    accelerator.print("Finished offline training")
     accelerator.end_training()
     
 @hydra.main(version_base="1.2", config_name="default", config_path="../configs")
