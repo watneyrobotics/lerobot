@@ -664,7 +664,7 @@ class FiLMLayer(nn.Module):
         self.beta_linear = nn.Linear(num_relations, out_features=3)
 
     def forward(self, x, dataset_index_token):
-        dataset_index_token = torch.tensor(dataset_index_token, dtype=torch.float32)
+        dataset_index_token = dataset_index_token.to(dtype=torch.float32)
         dataset_index_token = dataset_index_token.unsqueeze(-1)
 
         gamma = self.gamma_linear(dataset_index_token)
