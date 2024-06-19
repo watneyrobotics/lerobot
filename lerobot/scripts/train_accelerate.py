@@ -1,23 +1,18 @@
 from pathlib import Path
 
 import hydra
-import os
-
 import torch
 import torch.utils
-
-from lerobot.common.utils.utils import set_global_seed, format_big_number
-from lerobot.common.datasets.factory import make_dataset
-from lerobot.common.datasets.lerobot_dataset import MultiLeRobotDataset, LeRobotDataset
-from lerobot.common.policies.factory import make_policy
-from lerobot.common.envs.factory import make_env
-
-from lerobot.scripts.train import make_optimizer_and_scheduler
-from lerobot.scripts.eval import eval_policy
-
 from accelerate import Accelerator
-
 from omegaconf import OmegaConf
+
+from lerobot.common.datasets.factory import make_dataset
+from lerobot.common.datasets.lerobot_dataset import MultiLeRobotDataset
+from lerobot.common.envs.factory import make_env
+from lerobot.common.policies.factory import make_policy
+from lerobot.common.utils.utils import set_global_seed
+from lerobot.scripts.eval import eval_policy
+from lerobot.scripts.train import make_optimizer_and_scheduler
 
 # Create a directory to store the training checkpoint.
 output_directory = Path("/fsx/marina_barannikov/outputs/train/mixed_precision_test_accelerated_act")
@@ -26,29 +21,37 @@ output_directory.mkdir(parents=True, exist_ok=True)
 pretrained_model_dir_name = "pretrained_model"
 training_state_file_name = "training_state.pth"
 
+
 def train(cfg, job_name, out_dir, resume_checkpoint=None):
-    out_dir=Path(out_dir)
+    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     accelerator = Accelerator(log_with="wandb")
 
     accelerator.init_trackers(
         project_name="lerobot",
-        init_kwargs={"wandb": {"name":job_name, "job_type": "train", "config": OmegaConf.to_container(cfg, resolve=True)}}
+        init_kwargs={
+            "wandb": {
+                "name": job_name,
+                "job_type": "train",
+                "config": OmegaConf.to_container(cfg, resolve=True),
+            }
+        },
     )
     # Check device is available
     device = accelerator.device
     print(device)
-    
+
     set_global_seed(cfg.seed)
     accelerator.print(f"Global seed set to {cfg.seed}")
 
-    
     offline_dataset = make_dataset(cfg)
     print(cfg.dataset_repo_id)
     accelerator.print(f"Dataset loaded with {len(offline_dataset)} samples")
     if isinstance(offline_dataset, MultiLeRobotDataset):
-        accelerator.print(f"Multiple datasets were provided. Applied the following index mapping to the provided datasets: {(offline_dataset.repo_id_to_index)}")
+        accelerator.print(
+            f"Multiple datasets were provided. Applied the following index mapping to the provided datasets: {(offline_dataset.repo_id_to_index)}"
+        )
 
     eval_env = None
     if cfg.training.eval_freq > 0:
@@ -75,7 +78,6 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
         drop_last=False,
     )
 
-
     policy, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         policy, optimizer, train_dataloader, lr_scheduler
     )
@@ -83,12 +85,12 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
 
     step = 0
 
-    if cfg.resume=="true":
-        resume_step=int(resume_checkpoint.split("/")[-1])
+    if cfg.resume == "true":
+        resume_step = int(resume_checkpoint.split("/")[-1])
         accelerator.print(f"Resumed from step: {resume_step}")
         accelerator.load_state(resume_checkpoint)
     else:
-        resume_step=0
+        resume_step = 0
 
     done = False
     while not done:
@@ -96,7 +98,7 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
             accelerator.print("Start offline training on a fixed dataset")
 
         policy.train()
-        if resume_step>step and len(train_dataloader)%resume_step != 0 :
+        if resume_step > step and len(train_dataloader) % resume_step != 0:
             # We need to skip steps until we reach the resumed step
             active_dataloader = accelerator.skip_first_batches(train_dataloader, resume_step)
             accelerator.print(f"Skipping {resume_step} steps in the dataloader.")
@@ -129,8 +131,8 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
                 accelerator.print(f"Saving state to {save_dir}")
                 accelerator.save_state(save_dir)
                 OmegaConf.save(cfg, save_dir / "config.yaml")
-            
-            if step % cfg.training.eval_freq == 0:
+
+            if cfg.training.eval_freq > 0 and step % cfg.training.eval_freq == 0:
                 accelerator.print(f"Evaluating policy from process {accelerator.local_process_index}")
                 with torch.no_grad():
                     accelerator.wait_for_everyone()
@@ -138,7 +140,7 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
                         eval_env,
                         policy,
                         cfg.eval.n_episodes,
-                        videos_dir=out_dir/ "eval" / f"videos_step_{step_identifier}",
+                        videos_dir=out_dir / "eval" / f"videos_step_{step_identifier}",
                         max_episodes_rendered=4,
                         enable_progbar=True,
                         start_seed=cfg.seed,
@@ -146,14 +148,13 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
                     )
 
                     for k, v in eval_info.items():
-                        accelerator.print({f"eval/{k}": v}, step=step+1)
+                        accelerator.print({f"eval/{k}": v}, step=step + 1)
                         if not isinstance(v, (int, float)):
                             accelerator.print(f"Skipping {k} from logging because it is not a scalar")
                             continue
-                        accelerator.log({f"eval/{k}": v}, step=step+1)
+                        accelerator.log({f"eval/{k}": v}, step=step + 1)
                     accelerator.print(f"Evaluated policy from process {accelerator.local_process_index}")
-                    
-            
+
             step += 1
 
             if step > cfg.training.offline_steps:
@@ -161,15 +162,17 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
                 break
 
     accelerator.end_training()
-    
+
+
 @hydra.main(version_base="1.2", config_name="default", config_path="../configs")
 def train_cli(cfg: dict):
     train(
         cfg,
         job_name=hydra.core.hydra_config.HydraConfig.get().job.name,
         out_dir=hydra.core.hydra_config.HydraConfig.get().run.dir,
-        resume_checkpoint=None
+        resume_checkpoint=None,
     )
+
 
 if __name__ == "__main__":
     train_cli()
