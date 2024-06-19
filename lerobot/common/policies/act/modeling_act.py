@@ -358,6 +358,7 @@ class ACT(nn.Module):
             robot_state_embed = self.encoder_robot_state_input_proj(batch["observation.state"])  # (B, C)
 
         # Dataset index.
+        dataset_index_embed = None
         if "dataset_index" in self.config.input_shapes:
             dataset_index_embed = self.dataset_index_embed(batch["dataset_index"]).squeeze(1)  # (B, C)
 
@@ -403,7 +404,7 @@ class ACT(nn.Module):
         )
 
         # Forward pass through the transformer modules.
-        encoder_out = self.encoder(encoder_in, pos_embed=pos_embed)
+        encoder_out = self.encoder(encoder_in, pos_embed=pos_embed, dataset_index_embed=dataset_index_embed)
         # TODO(rcadene, alexander-soare): remove call to `device` ; precompute and use buffer
         decoder_in = torch.zeros(
             (self.config.chunk_size, batch_size, self.config.dim_model),
@@ -433,9 +434,9 @@ class ACTEncoder(nn.Module):
         self.layers = nn.ModuleList([ACTEncoderLayer(config) for _ in range(config.n_encoder_layers)])
         self.norm = nn.LayerNorm(config.dim_model) if config.pre_norm else nn.Identity()
 
-    def forward(self, x: Tensor, pos_embed: Tensor | None = None) -> Tensor:
+    def forward(self, x: Tensor, pos_embed: Tensor | None = None,  dataset_index_embed: Tensor | None = None) -> Tensor:
         for layer in self.layers:
-            x = layer(x, pos_embed=pos_embed)
+            x = layer(x, pos_embed=pos_embed, dataset_index_embed=dataset_index_embed)
         x = self.norm(x)
         return x
 
@@ -458,7 +459,10 @@ class ACTEncoderLayer(nn.Module):
         self.activation = get_activation_fn(config.feedforward_activation)
         self.pre_norm = config.pre_norm
 
-    def forward(self, x, pos_embed: Tensor | None = None) -> Tensor:
+    def forward(self, x, pos_embed: Tensor | None = None, dataset_index_embed: Tensor = None) -> Tensor:
+        if dataset_index_embed is not None:
+            x = x + dataset_index_embed
+
         skip = x
         if self.pre_norm:
             x = self.norm1(x)
