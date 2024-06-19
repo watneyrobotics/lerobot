@@ -12,6 +12,7 @@ from lerobot.common.policies.factory import make_policy
 from lerobot.common.envs.factory import make_env
 
 from lerobot.scripts.train import make_optimizer_and_scheduler
+from lerobot.common.datasets.sampler import EpisodeAwareSampler
 from lerobot.scripts.eval import eval_policy
 
 from accelerate import Accelerator
@@ -63,8 +64,16 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
     num_total_params = sum(p.numel() for p in policy.parameters())
     accelerator.print(f"Policy created with {num_total_params} parameters")
 
-    shuffle = True
-    sampler = None
+    if cfg.training.get("drop_n_last_frames"):
+        shuffle = False
+        sampler = EpisodeAwareSampler(
+            offline_dataset.episode_data_index,
+            drop_n_last_frames=cfg.training.drop_n_last_frames,
+            shuffle=True,
+        )
+    else:
+        shuffle = True
+        sampler = None
 
     train_dataloader = torch.utils.data.DataLoader(
         offline_dataset,
@@ -112,12 +121,19 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
             output_dict = policy.forward(batch)
             loss = output_dict["loss"]
             accelerator.backward(loss)
+
+            grad_norm = accelerator.clip_grad_norm_(policy.parameters(), cfg.training.grad_clip_norm)
+            
             optimizer.step()
             optimizer.zero_grad()
+
+            if lr_scheduler is not None:
+                lr_scheduler.step()
 
             if step % cfg.training.log_freq == 0:
                 accelerator.print(f"step: {step} loss: {loss.item():.3f}")
                 accelerator.log({"train/loss": loss.item()}, step=step)
+                accelerator.log({"train/grad_norm": grad_norm}, step=step)
                 for k, v in output_dict.items():
                     if k != "loss":
                         accelerator.log({f"train/{k}": v}, step=step)
