@@ -16,7 +16,7 @@ from lerobot.scripts.eval import eval_policy
 
 from accelerate import Accelerator
 
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 
 # Create a directory to store the training checkpoint.
 output_directory = Path("/fsx/marina_barannikov/outputs/train/mixed_precision_test_accelerated_act")
@@ -25,7 +25,12 @@ output_directory.mkdir(parents=True, exist_ok=True)
 pretrained_model_dir_name = "pretrained_model"
 training_state_file_name = "training_state.pth"
 
-def train(cfg, job_name, out_dir, resume_checkpoint=None):
+def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
+    if out_dir is None:
+        raise NotImplementedError()
+    if job_name is None:
+        raise NotImplementedError()
+    
     out_dir=Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
