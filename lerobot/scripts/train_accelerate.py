@@ -93,12 +93,18 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
 
     step = 0
 
-    if cfg.resume=="true":
-        resume_step=int(resume_checkpoint.split("/")[-1])
+    if cfg.resume==True or cfg.resume.lower()=="true":
+        subfolders = [p for p in out_dir.iterdir() if p.is_dir()]
+        latest_subfolder = max(subfolders, key=lambda p: os.path.getctime(str(p)))
+        accelerator.print(f"Resuming from {latest_subfolder}")
+        resume_step=int(latest_subfolder.name) + 1
         accelerator.print(f"Resumed from step: {resume_step}")
-        accelerator.load_state(resume_checkpoint)
+        accelerator.load_state(latest_subfolder)
     else:
+        accelerator.print("Starting from scratch")
         resume_step=0
+
+    step = resume_step
 
     done = False
     while not done:
@@ -106,6 +112,7 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
             accelerator.print("Start offline training on a fixed dataset")
 
         policy.train()
+        """
         if resume_step>step and len(train_dataloader)%resume_step != 0 :
             # We need to skip steps until we reach the resumed step
             active_dataloader = accelerator.skip_first_batches(train_dataloader, resume_step)
@@ -114,6 +121,9 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
         else:
             # After the first iteration though, we need to go back to the original dataloader
             active_dataloader = train_dataloader
+        """
+
+        active_dataloader = train_dataloader
 
         for batch in active_dataloader:
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
@@ -186,7 +196,6 @@ def train_cli(cfg: dict):
         cfg,
         job_name=hydra.core.hydra_config.HydraConfig.get().job.name,
         out_dir=hydra.core.hydra_config.HydraConfig.get().run.dir,
-        resume_checkpoint=None
     )
 
 if __name__ == "__main__":
