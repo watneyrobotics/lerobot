@@ -44,6 +44,7 @@ policy:
     # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
     observation.images.top: [3, 480, 640]
     observation.state: ["${env.state_dim}"]
+    dataset_index: [1]
   output_shapes:
     action: ["${env.action_dim}"]
 
