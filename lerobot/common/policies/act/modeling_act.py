@@ -99,9 +99,6 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
         batch = self.normalize_inputs(batch)
         batch["observation.images"] = torch.stack([batch[k] for k in self.expected_image_keys], dim=-4)
 
-        if "dataset_index" in self.config.input_shapes:
-            batch["dataset_index"] = torch.full_like(batch["observation.images"][:, 0, 0, 0, 0], dataset_index, dtype=torch.long)
-
         # If we are doing temporal ensembling, keep track of the exponential moving average (EMA), and return
         # the first action.
         if self.config.temporal_ensemble_momentum is not None:

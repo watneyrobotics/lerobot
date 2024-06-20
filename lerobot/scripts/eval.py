@@ -151,8 +151,9 @@ def rollout(
         if return_observations:
             all_observations.append(deepcopy(observation))
 
-        #if dataset_index is not None:
-          #  observation["dataset_index"] = torch.full_like(observation["observation.state"][:, 0,], fill_value=dataset_index, dtype=torch.long)
+        if dataset_index is not None:
+            # observation["observation.state"].shape[0] is the batch size.
+            observation["dataset_index"] = torch.full((observation["observation.state"].shape[0],), fill_value=dataset_index, dtype=torch.long)
 
         observation = {key: observation[key].to(device, non_blocking=True) for key in observation}
 
