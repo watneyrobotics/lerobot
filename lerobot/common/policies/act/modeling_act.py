@@ -347,7 +347,11 @@ class ACT(nn.Module):
                 batch["observation.state"].device
             )
 
-        # Prepare all other transformer encoder inputs.
+        # Dataset index.
+        dataset_index_embed = None
+        if "dataset_index" in self.config.input_shapes:
+            dataset_index_embed = self.dataset_index_embed(batch["dataset_index"]).squeeze(1)  # (B, C)
+
         # Camera observation features and positional embeddings.
         all_cam_features = []
         all_cam_pos_embeds = []
@@ -371,6 +375,10 @@ class ACT(nn.Module):
 
         # Stack encoder input and positional embeddings moving to (S, B, C).
         encoder_in_feats = [latent_embed, robot_state_embed] if self.use_input_state else [latent_embed]
+
+        if dataset_index_embed is not None:
+            encoder_in_feats.append(dataset_index_embed)
+
         encoder_in = torch.cat(
             [
                 torch.stack(encoder_in_feats, axis=0),
@@ -386,7 +394,7 @@ class ACT(nn.Module):
         )
 
         # Forward pass through the transformer modules.
-        encoder_out = self.encoder(encoder_in, pos_embed=pos_embed)
+        encoder_out = self.encoder(encoder_in, pos_embed=pos_embed, dataset_index_embed=dataset_index_embed)
         # TODO(rcadene, alexander-soare): remove call to `device` ; precompute and use buffer
         decoder_in = torch.zeros(
             (self.config.chunk_size, batch_size, self.config.dim_model),
@@ -417,9 +425,11 @@ class ACTEncoder(nn.Module):
         self.norm = nn.LayerNorm(config.dim_model) if config.pre_norm else nn.Identity()
 
     def forward(
-        self, x: Tensor, pos_embed: Tensor | None = None, key_padding_mask: Tensor | None = None
+        self, x: Tensor, pos_embed: Tensor | None = None, key_padding_mask: Tensor | None = None,   dataset_index_embed: Tensor | None = None
     ) -> Tensor:
         for layer in self.layers:
+            if dataset_index_embed is not None:
+                x = torch.stack([x, dataset_index_embed], axis=0)
             x = layer(x, pos_embed=pos_embed, key_padding_mask=key_padding_mask)
         x = self.norm(x)
         return x
