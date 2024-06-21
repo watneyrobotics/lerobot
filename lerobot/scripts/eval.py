@@ -83,6 +83,7 @@ def rollout(
     return_observations: bool = False,
     render_callback: Callable[[gym.vector.VectorEnv], None] | None = None,
     enable_progbar: bool = False,
+    dataset_index: int = None,
 ) -> dict:
     """Run a batched policy rollout once through a batch of environments.
 
@@ -113,6 +114,8 @@ def rollout(
         render_callback: Optional rendering callback to be used after the environments are reset, and after
             every step.
         enable_progbar: Enable a progress bar over rollout steps.
+        dataset_index: The index of the dataset to use for evaluation. If the dataset is a MultiLeRobotDataset,
+            this index specifies which dataset to use. If not provided, the first dataset is used.
     Returns:
         The dictionary described above.
     """
@@ -147,6 +150,10 @@ def rollout(
         observation = preprocess_observation(observation)
         if return_observations:
             all_observations.append(deepcopy(observation))
+
+        if dataset_index is not None:
+            # observation["observation.state"].shape[0] is the batch size.
+            observation["dataset_index"] = torch.full((observation["observation.state"].shape[0],), fill_value=dataset_index, dtype=torch.long)
 
         observation = {key: observation[key].to(device, non_blocking=True) for key in observation}
 
@@ -215,6 +222,7 @@ def eval_policy(
     start_seed: int | None = None,
     enable_progbar: bool = False,
     enable_inner_progbar: bool = False,
+    dataset_index: int | None = None,
 ) -> dict:
     """
     Args:
@@ -229,6 +237,8 @@ def eval_policy(
             seed is incremented by 1. If not provided, the environments are not manually seeded.
         enable_progbar: Enable progress bar over batches.
         enable_inner_progbar: Enable progress bar over steps in each batch.
+        dataset_index: The index of the dataset to use for evaluation. If the dataset is a MultiLeRobotDataset,
+            this index specifies which dataset to use. If not provided, the first dataset is used.
     Returns:
         Dictionary with metrics and data regarding the rollouts.
     """
@@ -289,6 +299,7 @@ def eval_policy(
             return_observations=return_episode_data,
             render_callback=render_frame if max_episodes_rendered > 0 else None,
             enable_progbar=enable_inner_progbar,
+            dataset_index=dataset_index,
         )
 
         # Figure out where in each rollout sequence the first done condition was encountered (results after
@@ -524,6 +535,7 @@ def main(
     hydra_cfg_path: str | None = None,
     out_dir: str | None = None,
     config_overrides: list[str] | None = None,
+    dataset_index: int | None = None,
 ):
     assert (pretrained_policy_path is None) ^ (hydra_cfg_path is None)
     if pretrained_policy_path is not None:
@@ -533,6 +545,13 @@ def main(
 
     if out_dir is None:
         out_dir = f"outputs/eval/{dt.now().strftime('%Y-%m-%d/%H-%M-%S')}_{hydra_cfg.env.name}_{hydra_cfg.policy.name}"
+
+    if not isinstance(hydra_cfg.dataset_repo_id, str):
+        dataset_index=int(dataset_index)
+        logging.info(f"Detected multiple datasets. Evaluation will be done on the dataset : {dataset_index}, which is {hydra_cfg.dataset_repo_id[dataset_index]}.")
+        if dataset_index is None:
+            logging.info("No dataset_index parameter detected for evaluation. Defaulting to 0.")
+            dataset_index = 0
 
     # Check device is available
     device = get_safe_torch_device(hydra_cfg.device, log=True)
@@ -566,6 +585,7 @@ def main(
             start_seed=hydra_cfg.seed,
             enable_progbar=True,
             enable_inner_progbar=True,
+            dataset_index=dataset_index,
         )
     print(info["aggregated"])
 
@@ -614,6 +634,11 @@ if __name__ == "__main__":
         nargs="*",
         help="Any key=value arguments to override config values (use dots for.nested=overrides)",
     )
+    parser.add_argument(
+        "-d",
+        "--dataset-index",
+
+    )
     args = parser.parse_args()
 
     if args.pretrained_policy_name_or_path is None:
@@ -645,4 +670,5 @@ if __name__ == "__main__":
             pretrained_policy_path=pretrained_policy_path,
             out_dir=args.out_dir,
             config_overrides=args.overrides,
+            dataset_index=args.dataset_index,
         )
