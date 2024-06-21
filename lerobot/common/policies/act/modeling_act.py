@@ -252,8 +252,8 @@ class ACT(nn.Module):
             )
         # Dataset index embedding.
         if "dataset_index" in config.input_shapes:
-            # create a FiLM layer to condition on dataset index
-            self.film_layer = FiLMLayer(num_relations=1, out_features=3)
+            # create a FiLM layer to condition on dataset index after the image features
+            self.film_layer = FiLMLayer(num_relations=1, out_features=config.dim_model, dropout=0.5)
 
 
         # Image feature projection.
@@ -655,10 +655,11 @@ def get_activation_fn(activation: str) -> Callable:
 
 
 class FiLMLayer(nn.Module):
-    def __init__(self, out_features, num_relations):
+    def __init__(self, out_features, num_relations, dropout = 0.0):
         super().__init__()
-        self.gamma_linear = nn.Linear(num_relations, out_features=512)
-        self.beta_linear = nn.Linear(num_relations, out_features=512)
+        self.gamma_linear = nn.Linear(num_relations, out_features=out_features)
+        self.beta_linear = nn.Linear(num_relations, out_features=out_features)
+        self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, dataset_index_token):
         dataset_index_token = dataset_index_token.to(dtype=torch.float32)
@@ -669,5 +670,7 @@ class FiLMLayer(nn.Module):
         gamma = gamma.unsqueeze(2).unsqueeze(3).expand_as(x)
         beta = beta.unsqueeze(2).unsqueeze(3).expand_as(x)
         conditioned_x = gamma * x + beta
+
+        conditioned_x = self.dropout(conditioned_x)
 
         return conditioned_x
