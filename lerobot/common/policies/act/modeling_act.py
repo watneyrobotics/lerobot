@@ -362,12 +362,7 @@ class ACT(nn.Module):
         all_cam_pos_embeds = []
         images = batch["observation.images"]
         for cam_index in range(images.shape[-4]):
-            # Apply FiLM layer to condition on dataset index.
-            if "dataset_index" in self.config.input_shapes:
-                dataset_index_token = batch["dataset_index"]
-                film_output = self.film_layer(images[:, cam_index], dataset_index_token)
-            cam_features = self.backbone(film_output)["feature_map"]
-
+            cam_features = self.backbone(images[:, cam_index])["feature_map"]
             # TODO(rcadene, alexander-soare): remove call to `.to` to speedup forward ; precompute and use buffer
 
             cam_pos_embed = self.encoder_cam_feat_pos_embed(cam_features).to(dtype=cam_features.dtype)
@@ -378,7 +373,9 @@ class ACT(nn.Module):
         all_cam_features = torch.cat(all_cam_features, axis=-1)  # (B, C, h, num_cams * w)
         # Note: Flatten camera features to a 1D sequence.
         einops.rearrange(all_cam_features, "b c h w -> (h w) b c")  # (S, B ,C)
-
+        if "dataset_index" in self.config.input_shapes:
+            dataset_index_token = batch["dataset_index"]
+            all_cam_features = self.film_layer(all_cam_features, dataset_index_token)
         # Stack encoder input tokens:
         # [latent; (maybe) robot_state; (maybe) dataset_index; image_feature_map_pixels].
         standalone_tokens = [latent_embed]
@@ -660,8 +657,8 @@ def get_activation_fn(activation: str) -> Callable:
 class FiLMLayer(nn.Module):
     def __init__(self, out_features, num_relations):
         super().__init__()
-        self.gamma_linear = nn.Linear(num_relations, out_features=3)
-        self.beta_linear = nn.Linear(num_relations, out_features=3)
+        self.gamma_linear = nn.Linear(num_relations, out_features=512)
+        self.beta_linear = nn.Linear(num_relations, out_features=512)
 
     def forward(self, x, dataset_index_token):
         dataset_index_token = dataset_index_token.to(dtype=torch.float32)
