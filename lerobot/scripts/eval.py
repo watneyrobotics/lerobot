@@ -158,7 +158,7 @@ def rollout(
         observation = {key: observation[key].to(device, non_blocking=True) for key in observation}
 
         with torch.inference_mode():
-            action = policy.select_action(observation, dataset_index=dataset_index)
+            action = policy.select_action(observation)
 
         # Convert to CPU / numpy.
         action = action.to("cpu").numpy()
