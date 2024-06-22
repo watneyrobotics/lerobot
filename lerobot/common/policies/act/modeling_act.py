@@ -265,7 +265,7 @@ class ACT(nn.Module):
         if self.use_input_state:
             num_input_token_decoder += 1
 
-        self.encoder_standalone_token_embeddings = nn.Embedding(num_input_token_decoder, config.dim_model)
+        self.encoder_robot_and_latent_pos_embed = nn.Embedding(num_input_token_decoder, config.dim_model)
         self.encoder_cam_feat_pos_embed = ACTSinusoidalPositionEmbedding2d(config.dim_model // 2)
 
         # Transformer decoder.
@@ -408,7 +408,7 @@ class ACT(nn.Module):
         cam_pos_embed = torch.cat(all_cam_pos_embeds, axis=-1)
         pos_embed = torch.cat(
             [
-                self.encoder_standalone_token_embeddings.weight.unsqueeze(1),
+                self.encoder_robot_and_latent_pos_embed.weight.unsqueeze(1),
                 einops.rearrange(cam_pos_embed, "b c h w -> (h w) b c"),
             ],
             axis=0,
