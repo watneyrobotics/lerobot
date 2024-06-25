@@ -84,6 +84,7 @@ class ACTConfig:
             is enabled. Loss is then calculated as: `reconstruction_loss + kl_weight * kld_loss`.
     """
 
+
     # Input / output structure.
     n_obs_steps: int = 1
     chunk_size: int = 100

@@ -15,35 +15,20 @@
 # ```
 
 seed: 1000
-dataset_repo_id: lerobot/aloha_static_vinh_cup
+dataset_repo_id: [lerobot/aloha_sim_transfer_cube_human,lerobot/aloha_sim_insertion_human]
 
 override_dataset_stats:
-  observation.images.cam_right_wrist:
+  observation.images.top:
     # stats from imagenet, since we use a pretrained vision model
     mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
     std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
-  observation.images.cam_left_wrist:
-    # stats from imagenet, since we use a pretrained vision model
-    mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
-    std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
-  observation.images.cam_high:
-    # stats from imagenet, since we use a pretrained vision model
-    mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
-    std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
-  observation.images.cam_low:
-    # stats from imagenet, since we use a pretrained vision model
-    mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
-    std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
-  observation.type:
-    mean: [0.5]
-    std: [0.0]
 
 training:
   offline_steps: 80000
   online_steps: 0
   eval_freq: -1
   save_freq: 10000
-  log_freq: 100
+  log_freq: 250
   save_checkpoint: true
 
   batch_size: 8
@@ -54,8 +39,8 @@ training:
   online_steps_between_rollouts: 1
 
   delta_timestamps:
-    action: "[i / ${fps} for i in range(${policy.chunk_size})]"
-
+    action: "[i / ${fps} for i in range(1, ${policy.chunk_size} + 1)]"
+  
 eval:
   n_episodes: 50
   batch_size: 50
@@ -71,23 +56,16 @@ policy:
 
   input_shapes:
     # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
-    observation.images.cam_right_wrist: [3, 480, 640]
-    observation.images.cam_left_wrist: [3, 480, 640]
-    observation.images.cam_high: [3, 480, 640]
-    observation.images.cam_low: [3, 480, 640]
+    observation.images.top: [3, 800, 1280]
     observation.state: ["${env.state_dim}"]
-    obersevation.type: [1]
+    dataset_index: [1]
   output_shapes:
     action: ["${env.action_dim}"]
 
   # Normalization / Unnormalization
   input_normalization_modes:
-    observation.images.cam_right_wrist: mean_std
-    observation.images.cam_left_wrist: mean_std
-    observation.images.cam_high: mean_std
-    observation.images.cam_low: mean_std
+    observation.images.top: mean_std
     observation.state: mean_std
-    obersevation.type: mean_std
   output_normalization_modes:
     action: mean_std
 

@@ -15,6 +15,8 @@
 # limitations under the License.
 import logging
 
+import  math
+
 import torch
 from omegaconf import ListConfig, OmegaConf
 
@@ -96,7 +98,6 @@ def make_dataset(cfg, split: str = "train") -> LeRobotDataset | MultiLeRobotData
             split=split,
             delta_timestamps=cfg.training.get("delta_timestamps"),
             image_transforms=image_transforms,
-            video_backend=cfg.video_backend,
         )
     else:
         dataset = MultiLeRobotDataset(
@@ -104,9 +105,7 @@ def make_dataset(cfg, split: str = "train") -> LeRobotDataset | MultiLeRobotData
             split=split,
             delta_timestamps=cfg.training.get("delta_timestamps"),
             image_transforms=image_transforms,
-            video_backend=cfg.video_backend,
         )
-
     if cfg.get("override_dataset_stats"):
         for key, stats_dict in cfg.override_dataset_stats.items():
             for stats_type, listconfig in stats_dict.items():
@@ -114,4 +113,31 @@ def make_dataset(cfg, split: str = "train") -> LeRobotDataset | MultiLeRobotData
                 stats = OmegaConf.to_container(listconfig, resolve=True)
                 dataset.stats[key][stats_type] = torch.tensor(stats, dtype=torch.float32)
 
-    return dataset
+
+    if cfg.training.train_test_split == 1.0:
+        return (dataset)
+    
+
+    else:
+        if isinstance(dataset, MultiLeRobotDataset):
+            raise NotImplementedError("train_val_split is only supported for single dataset for now")
+        else:
+            tr_val_split = cfg.training.train_test_split
+            num_train_episodes = math.floor(dataset.num_episodes * tr_val_split)
+            num_val_episodes = dataset.num_episodes - num_train_episodes
+            first_val_frame_index = dataset.episode_data_index["from"][num_train_episodes].item()
+            train_dataset = LeRobotDataset("lerobot/pusht", split=f"train[:{first_val_frame_index}]")
+            val_dataset = LeRobotDataset("lerobot/pusht", split=f"train[{first_val_frame_index}:]")
+            
+
+            print(f"Number of frames in training dataset ({tr_val_split * 100}% subset): {len(train_dataset)}")
+            print(f"Number of frames in validation dataset ({(1-tr_val_split) * 100} subset): {len(val_dataset)}")
+
+        if cfg.get("override_dataset_stats"):
+            for key, stats_dict in cfg.override_dataset_stats.items():
+                for stats_type, listconfig in stats_dict.items():
+                    # example of stats_type: min, max, mean, std
+                    stats = OmegaConf.to_container(listconfig, resolve=True)
+                    dataset.stats[key][stats_type] = torch.tensor(stats, dtype=torch.float32)
+
+        return (train_dataset, val_dataset)

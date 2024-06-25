@@ -15,12 +15,12 @@
 # limitations under the License.
 import logging
 import time
-from contextlib import nullcontext
 from pathlib import Path
 from pprint import pformat
 
 import hydra
 import torch
+from accelerate.utils import set_seed
 from deepdiff import DeepDiff
 from omegaconf import DictConfig, OmegaConf
 from termcolor import colored
@@ -35,15 +35,15 @@ from lerobot.common.envs.factory import make_env
 from lerobot.common.logger import Logger, log_output_dir
 from lerobot.common.policies.factory import make_policy
 from lerobot.common.policies.policy_protocol import PolicyWithUpdate
-from lerobot.common.policies.utils import get_device_from_parameters
 from lerobot.common.utils.utils import (
     format_big_number,
-    get_safe_torch_device,
     init_hydra_config,
     init_logging,
     set_global_seed,
 )
 from lerobot.scripts.eval import eval_policy
+
+set_seed(0)
 
 
 def make_optimizer_and_scheduler(cfg, policy):
@@ -53,14 +53,12 @@ def make_optimizer_and_scheduler(cfg, policy):
                 "params": [
                     p
                     for n, p in policy.named_parameters()
-                    if not n.startswith("model.backbone") and p.requires_grad
+                    if not n.startswith("backbone") and p.requires_grad
                 ]
             },
             {
                 "params": [
-                    p
-                    for n, p in policy.named_parameters()
-                    if n.startswith("model.backbone") and p.requires_grad
+                    p for n, p in policy.named_parameters() if n.startswith("backbone") and p.requires_grad
                 ],
                 "lr": cfg.training.lr_backbone,
             },
@@ -95,36 +93,33 @@ def make_optimizer_and_scheduler(cfg, policy):
 
 
 def update_policy(
+    accelerator,
     policy,
     batch,
     optimizer,
     grad_clip_norm,
     grad_scaler: GradScaler,
     lr_scheduler=None,
-    use_amp: bool = False,
 ):
     """Returns a dictionary of items for logging."""
     start_time = time.perf_counter()
-    device = get_device_from_parameters(policy)
+    device = accelerator.device
+
     policy.train()
-    with torch.autocast(device_type=device.type) if use_amp else nullcontext():
-        output_dict = policy.forward(batch)
-        # TODO(rcadene): policy.unnormalize_outputs(out_dict)
-        loss = output_dict["loss"]
+
+    output_dict = policy.forward(batch)
+    # TODO(rcadene): policy.unnormalize_outputs(out_dict)
+    loss = output_dict["loss"].mean()
     grad_scaler.scale(loss).backward()
 
     # Unscale the graident of the optimzer's assigned params in-place **prior to gradient clipping**.
     grad_scaler.unscale_(optimizer)
 
-    grad_norm = torch.nn.utils.clip_grad_norm_(
-        policy.parameters(),
-        grad_clip_norm,
-        error_if_nonfinite=False,
-    )
-
+    grad_norm = accelerator.clip_grad_norm_(policy.parameters(), grad_clip_norm)
     # Optimizer's gradients are already unscaled, so scaler.step does not unscale them,
     # although it still skips optimizer.step() if the gradients contain infs or NaNs.
     grad_scaler.step(optimizer)
+
     # Updates the scale for next iteration.
     grad_scaler.update()
 
@@ -279,7 +274,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     set_global_seed(cfg.seed)
 
     # Check device is available
-    device = get_safe_torch_device(cfg.device, log=True)
+    device = cfg.device
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -336,25 +331,21 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
 
         if cfg.training.eval_freq > 0 and step % cfg.training.eval_freq == 0:
             logging.info(f"Eval policy at step {step}")
-            with torch.no_grad(), torch.autocast(device_type=device.type) if cfg.use_amp else nullcontext():
-                assert eval_env is not None
-                eval_info = eval_policy(
-                    eval_env,
-                    policy,
-                    cfg.eval.n_episodes,
-                    videos_dir=Path(out_dir) / "eval" / f"videos_step_{step_identifier}",
-                    max_episodes_rendered=4,
-                    start_seed=cfg.seed,
-                )
+            assert eval_env is not None
+            eval_info = eval_policy(
+                eval_env,
+                policy,
+                cfg.eval.n_episodes,
+                videos_dir=Path(out_dir) / "eval" / f"videos_step_{step_identifier}",
+                max_episodes_rendered=4,
+                start_seed=cfg.seed,
+            )
             log_eval_info(logger, eval_info["aggregated"], step, cfg, offline_dataset, is_offline=True)
             if cfg.wandb.enable:
                 logger.log_video(eval_info["video_paths"][0], step, mode="eval")
             logging.info("Resume training")
 
-        if cfg.training.save_checkpoint and (
-            step % cfg.training.save_freq == 0
-            or step == cfg.training.offline_steps + cfg.training.online_steps
-        ):
+        if cfg.training.save_checkpoint and step % cfg.training.save_freq == 0:
             logging.info(f"Checkpoint policy after step {step}")
             # Note: Save with step as the identifier, and format it to have at least 6 digits but more if
             # needed (choose 6 as a minimum for consistency without being overkill).
@@ -389,18 +380,17 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     )
     dl_iter = cycle(dataloader)
 
+    policy.to(device)
+
     policy.train()
     for _ in range(step, cfg.training.offline_steps):
         if step == 0:
             logging.info("Start offline training on a fixed dataset")
-
         start_time = time.perf_counter()
         batch = next(dl_iter)
         dataloading_s = time.perf_counter() - start_time
-
         for key in batch:
             batch[key] = batch[key].to(device, non_blocking=True)
-
         train_info = update_policy(
             policy,
             batch,
@@ -408,9 +398,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
             cfg.training.grad_clip_norm,
             grad_scaler=grad_scaler,
             lr_scheduler=lr_scheduler,
-            use_amp=cfg.use_amp,
         )
-
         train_info["dataloading_s"] = dataloading_s
 
         if step % cfg.training.log_freq == 0:

@@ -18,6 +18,8 @@ import numpy as np
 import torch
 from torch import Tensor
 
+from torchvision.transforms import v2
+
 
 def preprocess_observation(observations: dict[str, np.ndarray]) -> dict[str, Tensor]:
     """Convert environment observation to LeRobot format observation.
@@ -34,6 +36,8 @@ def preprocess_observation(observations: dict[str, np.ndarray]) -> dict[str, Ten
     else:
         imgs = {"observation.image": observations["pixels"]}
 
+    transforms = v2.Compose([v2.ColorJitter(brightness=(0.8,2), contrast=(0.8,2), saturation=(0.4,1.4), hue=(-0.05, 0.05)), v2.RandomAdjustSharpness(1.5, p=0.5)])
+
     for imgkey, img in imgs.items():
         img = torch.from_numpy(img)
 
@@ -49,7 +53,7 @@ def preprocess_observation(observations: dict[str, np.ndarray]) -> dict[str, Ten
         img = img.type(torch.float32)
         img /= 255
 
-        return_observations[imgkey] = img
+        return_observations[imgkey] = transforms(img)
 
     # TODO(rcadene): enable pixels only baseline with `obs_type="pixels"` in environment by removing
     # requirement for "agent_pos"
