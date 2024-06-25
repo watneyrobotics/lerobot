@@ -167,6 +167,7 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
                 break
     unwrapped_policy = accelerator.unwrap_model(policy)
     unwrapped_policy.save_pretrained(out_dir / "final")
+    OmegaConf.save(cfg, save_dir / "config.yaml")
     accelerator.print("Finished offline training")
     accelerator.end_training()
     
