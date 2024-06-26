@@ -115,7 +115,9 @@ class OpenCVCamera():
 
     def connect(self):
         if self.is_connected:
-            raise ValueError(f"Camera {self.camera_index} is already connected.")
+            print(f"Camera {self.camera_index} is already connected, releasing it.")
+            self.camera.release()
+            print(f"Realeased camera {self.camera_index}.")
 
         # First create a temporary camera trying to access `camera_index`,
         # and verify it is a valid camera by calling `isOpened`.

@@ -76,14 +76,14 @@ def busy_wait(seconds):
     while time.perf_counter() < end_time:
         pass
 
-def record_dataset(root="tmp/data", repo_id="lerobot/debug", fps=30, video=True, warmup_time_s=2, record_time_s=10):
+def record_dataset(root="tmp/data", repo_id="lerobot/debug", fps=30, video=True, warmup_time_s=2, record_time_s=10, episode_index=0):
     if not video:
         raise NotImplementedError()
 
     robot = KOCH_ROBOT
     robot.init_teleop()
 
-    local_dir = Path(root) / repo_id
+    local_dir = Path(root) / repo_id / f"episode_{episode_index:03d}"
     if local_dir.exists():
         shutil.rmtree(local_dir)
 
@@ -91,7 +91,6 @@ def record_dataset(root="tmp/data", repo_id="lerobot/debug", fps=30, video=True,
     videos_dir.mkdir(parents=True, exist_ok=True)
 
     frame_index = 0
-    episode_index = 0
     ep_dict = {}
 
     start_time = time.perf_counter()
@@ -262,7 +261,16 @@ if __name__ == "__main__":
     if args.mode == "teleoperate":
         teleoperate()
     elif args.mode == "record_dataset":
-        record_dataset(record_time_s=20, fps=30)
+        episode_index = 0
+        done = False
+        while not done:
+            print(f"Press spacebar to start recording episode {episode_index + 1}, or 'q' to quit...")
+            if input() == "":
+                record_dataset(record_time_s=12, fps=30, repo_id=f"koch/pick_trash1", episode_index=episode_index)
+                episode_index += 1
+            elif input() == "q":
+                done = True
+                break
     elif args.mode == "replay_episode":
         replay_episode()
     # elif args.mode == "find_camera_ids":
