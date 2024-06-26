@@ -208,8 +208,8 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
                             
             
         policy.eval()
+        
         total_loss = 0
-
         with torch.no_grad():
             for batch in val_dataloader:
                 batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
