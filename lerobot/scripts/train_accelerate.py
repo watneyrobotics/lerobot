@@ -184,9 +184,9 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
                     accelerator.wait_for_everyone()
                     eval_info = eval_policy(
                         eval_env,
-                        policy,
+                        accelerator.unwrap_model(policy),
                         cfg.eval.n_episodes,
-                        videos_dir=out_dir/ "eval" / f"videos_step_{step_identifier}",
+                        videos_dir=out_dir/ "eval" / f"videos_step_{step}",
                         max_episodes_rendered=4,
                         enable_progbar=True,
                         start_seed=cfg.seed,
@@ -208,7 +208,7 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
                             
             
         policy.eval()
-        
+
         total_loss = 0
         with torch.no_grad():
             for batch in val_dataloader:
