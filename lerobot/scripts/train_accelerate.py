@@ -193,7 +193,7 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
                     )
 
                     for k, v in eval_info.items():
-                        accelerator.print({f"eval/{k}": v}, step=step+1)
+                        accelerator.print(f"eval/{k}: {v} at {step+1}")
                         if not isinstance(v, (int, float)):
                             accelerator.print(f"Skipping {k} from logging because it is not a scalar")
                             continue
