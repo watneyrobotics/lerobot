@@ -36,6 +36,7 @@ from torchvision.ops.misc import FrozenBatchNorm2d
 
 from lerobot.common.policies.act.configuration_act import ACTConfig
 from lerobot.common.policies.normalize import Normalize, Unnormalize
+from lerobot.common.policies.factory import make_policy
 
 
 class ACTPolicy(nn.Module, PyTorchModelHubMixin):
@@ -237,6 +238,13 @@ class ACT(nn.Module):
         # Note: The forward method of this returns a dict: {"feature_map": output}.
         self.backbone = IntermediateLayerGetter(backbone_model, return_layers={"layer4": "feature_map"})
 
+        if "dataset_index" in config.input_shapes:
+            self.film_layers = nn.ModuleDict()
+            for name, module in self.backbone_model.named_modules():
+                print(f"module: {module}, name: {name}")
+                if isinstance(module, nn.Conv2d):
+                    self.film_layers[name] = FiLMLayer(out_features=module.out_channels, num_relations=1)
+
         # Transformer (acts as VAE decoder when training with the variational objective).
         self.encoder = ACTEncoder(config)
         self.decoder = ACTDecoder(config)
@@ -250,10 +258,6 @@ class ACT(nn.Module):
             self.encoder_robot_state_input_proj = nn.Linear(
                 config.input_shapes["observation.state"][0], config.dim_model
             )
-        # Dataset index embedding.
-        if "dataset_index" in config.input_shapes:
-            # create a FiLM layer to condition on dataset index after the image features
-            self.film_layer = FiLMLayer(num_relations=1, out_features=config.dim_model, dropout=0.5)
 
 
         # Image feature projection.
@@ -375,7 +379,15 @@ class ACT(nn.Module):
         all_cam_features = []
         all_cam_pos_embeds = []
         images = batch["observation.images"]
+
         for cam_index in range(images.shape[-4]):
+            if "dataset_index" in self.config.input_shapes:
+                dataset_index = batch["dataset_index"]
+                for name, module in self.backbone_model.named_modules():
+                    if isinstance(module, nn.Conv2d):
+                        dataset_embed = self.film_layers[name](dataset_index)
+                dataset_embed = self.film_layers["layer4"](dataset_index)
+                
             cam_features = self.backbone(images[:, cam_index])["feature_map"]
             # TODO(rcadene, alexander-soare): remove call to `.to` to speedup forward ; precompute and use buffer
 
@@ -387,9 +399,7 @@ class ACT(nn.Module):
         all_cam_features = torch.cat(all_cam_features, axis=-1)  # (B, C, h, num_cams * w)
         # Note: Flatten camera features to a 1D sequence.
         einops.rearrange(all_cam_features, "b c h w -> (h w) b c")  # (S, B ,C)
-        if "dataset_index" in self.config.input_shapes:
-            dataset_index_token = batch["dataset_index"]
-            all_cam_features = self.film_layer(all_cam_features, dataset_index_token)
+
         # Stack encoder input tokens:
         # [latent; (maybe) robot_state; (maybe) dataset_index; image_feature_map_pixels].
         standalone_tokens = [latent_embed]

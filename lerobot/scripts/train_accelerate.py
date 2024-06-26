@@ -20,8 +20,6 @@ from accelerate import Accelerator
 from omegaconf import OmegaConf
 
 # Create a directory to store the training checkpoint.
-output_directory = Path("/fsx/marina_barannikov/outputs/train/mixed_precision_test_accelerated_act")
-output_directory.mkdir(parents=True, exist_ok=True)
 
 pretrained_model_dir_name = "pretrained_model"
 training_state_file_name = "training_state.pth"
@@ -56,7 +54,7 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
         eval_env = make_env(cfg)
 
     policy = make_policy(cfg, dataset_stats=offline_dataset.stats)
-
+    print(policy.config)
     optimizer, lr_scheduler = make_optimizer_and_scheduler(cfg, policy)
 
     num_total_params = sum(p.numel() for p in policy.parameters())
@@ -129,7 +127,7 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
                     if k != "loss":
                         accelerator.log({f"train/{k}": v}, step=step)
 
-            if step % cfg.training.save_freq == 0:
+            if step % cfg.training.save_freq == 0 and step > 0:
                 _num_digits = max(6, len(str(cfg.training.offline_steps + cfg.training.online_steps)))
                 step_identifier = f"{step:0{_num_digits}d}"
                 save_dir = out_dir / step_identifier
