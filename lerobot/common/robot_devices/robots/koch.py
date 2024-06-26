@@ -3,7 +3,7 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 import torch
 from examples.real_robot_example.gym_real_world.robot import Robot
-from lerobot.common.robot_devices.cameras.opencv import OpenCVCamera
+from lerobot.common.robot_devices.cameras.opencv import OpenCVCamera, OpenCVCameraConfig
 from lerobot.common.robot_devices.cameras.utils import Camera
 from lerobot.common.robot_devices.motors.dynamixel import DynamixelMotorsChain
 from lerobot.common.robot_devices.motors.utils import MotorsChain
@@ -34,7 +34,7 @@ class KochRobotConfig:
         default_factory=lambda: {
             "left": DynamixelMotorsChain(
                 #"/dev/tty.usbmodem575E0030111", {
-                "/dev/tty.usbmodem575E0031751", {
+                "/dev/tty.usbmodem575E0029051", {
                     1: "xl330-m077",
                     2: "xl330-m077",
                     3: "xl330-m077",
@@ -51,7 +51,7 @@ class KochRobotConfig:
             #"right": DynamixelMotorsChain("/dev/ttyDXL_puppet_right", [1, 2, 3, 4, 5, 6]),
             "left": DynamixelMotorsChain(
                 # "/dev/tty.usbmodem575E0031691", {
-                "/dev/tty.usbmodem575E0032081", {
+                "/dev/tty.usbmodem575E0031691", {
                     1: "xl430-w250",
                     2: "xl430-w250",
                     3: "xl330-m288",
@@ -63,7 +63,9 @@ class KochRobotConfig:
         }
     )
     cameras: dict[str, Camera] = field(
-        default_factory=lambda: {}
+        default_factory=lambda: {
+            "cam": OpenCVCamera(1, config=OpenCVCameraConfig(30, 640, 480)),
+        }
     )
 
 
@@ -133,7 +135,7 @@ class KochRobot():
         # Capture images from cameras
         images = {}
         for name in self.cameras:
-            images[name] = self.cameras[name].read()
+            images[name] = self.cameras[name].capture_image()
 
         # Populate output dictionnaries and format to pytorch
         obs_dict, action_dict = {}, {}

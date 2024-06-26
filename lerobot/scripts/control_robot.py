@@ -15,7 +15,6 @@ from lerobot.common.datasets.push_dataset_to_hub.utils import concatenate_episod
 from lerobot.common.datasets.utils import calculate_episode_data_index, load_hf_dataset
 from lerobot.common.datasets.video_utils import encode_video_frames
 # from lerobot.common.robot_devices.cameras.intelrealsense import IntelRealSenseCamera
-from lerobot.common.robot_devices.robots.aloha import AlohaRobot, AlohaRobotConfig
 from lerobot.common.robot_devices.robots.koch import KochRobot, KochRobotConfig
 from lerobot.scripts.push_dataset_to_hub import save_meta_data
 from lerobot.scripts.robot_controls.record_dataset import record_dataset
@@ -263,7 +262,7 @@ if __name__ == "__main__":
     if args.mode == "teleoperate":
         teleoperate()
     elif args.mode == "record_dataset":
-        record_dataset()
+        record_dataset(record_time_s=20, fps=30)
     elif args.mode == "replay_episode":
         replay_episode()
     # elif args.mode == "find_camera_ids":

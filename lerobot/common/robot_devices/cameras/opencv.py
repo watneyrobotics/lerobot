@@ -10,7 +10,7 @@ import numpy as np
 from lerobot.common.robot_devices.cameras.utils import save_color_image
 
 
-def find_camera_indices(raise_when_empty=False, max_index_search_range=60):
+def find_camera_indices(raise_when_empty=False, max_index_search_range=10):
     camera_ids = []
     for camera_idx in range(max_index_search_range):
         camera = cv2.VideoCapture(camera_idx)
@@ -93,7 +93,7 @@ class OpenCVCamera():
     color_image = camera.capture_image()
     ```
     """
-    # AVAILABLE_CAMERAS_INDICES = find_camera_indices()
+    AVAILABLE_CAMERAS_INDICES = find_camera_indices()
 
     def __init__(self, camera_index: int, config: OpenCVCameraConfig | None = None):
         if config is None:
@@ -103,7 +103,7 @@ class OpenCVCamera():
         self.width = config.width
         self.height = config.height
         self.color = config.color
-
+        
         if self.color not in ["rgb", "bgr"]:
             raise ValueError(f"Expected color values are 'rgb' or 'bgr', but {self.color} is provided.")
 
@@ -122,16 +122,18 @@ class OpenCVCamera():
         tmp_camera = cv2.VideoCapture(self.camera_index)
         is_camera_open = tmp_camera.isOpened()
         # Release camera to make it accessible for `find_camera_indices`
-        del tmp_camera
+        tmp_camera.release()
 
         # If the camera doesn't work, display the camera indices corresponding to
         # valid cameras.
+        
         if not is_camera_open:
             # Verify that the provided `camera_index` is valid before printing the traceback
             if self.camera_index not in OpenCVCamera.AVAILABLE_CAMERAS_INDICES:
                 raise ValueError(f"`camera_index` is expected to be one of these available cameras {OpenCVCamera.AVAILABLE_CAMERAS_INDICES}, but {self.camera_index} is provided instead.")
 
             raise OSError(f"Can't access camera {self.camera_index}.")
+        
         
         # Secondly, create the camera that will be used downstream.
         # Note: For some unknown reason, calling `isOpened` blocks the camera which then
@@ -161,7 +163,7 @@ class OpenCVCamera():
     def capture_image(self, temporary_color: str | None = None) -> np.ndarray:
         if not self.is_connected:
             self.connect()
-
+        
         ret, color_image = self.camera.read()
         if not ret:
             raise OSError(f"Can't capture color image from camera {self.camera_index}.")
