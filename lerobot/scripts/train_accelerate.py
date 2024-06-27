@@ -142,7 +142,7 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
 
             output_dict = policy.forward(batch)
-            loss = output_dict["loss"]
+            loss = output_dict["loss"].mean()
             accelerator.backward(loss)
 
             grad_norm = accelerator.clip_grad_norm_(policy.parameters(), cfg.training.grad_clip_norm)
