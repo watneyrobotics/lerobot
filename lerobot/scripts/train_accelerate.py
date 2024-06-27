@@ -65,10 +65,7 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
     set_global_seed(cfg.seed)
     accelerator.print(f"Global seed set to {cfg.seed}")
 
-    train_dataset, val_dataset = get_train_val_datasets(cfg, split_value=0.9)
-
-    accelerator.print(f"Number of frames in training dataset (90% subset): {len(train_dataset)}")
-    accelerator.print(f"Number of frames in validation dataset (10% subset): {len(val_dataset)}")
+    train_dataset, val_dataset = get_train_val_datasets(cfg, split_value=0.8)
 
     eval_env = None
     if cfg.training.eval_freq > 0:
