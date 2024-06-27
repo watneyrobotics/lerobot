@@ -221,8 +221,6 @@ class ACT(nn.Module):
             num_input_token_encoder = 1 + config.chunk_size
             if self.use_input_state:
                 num_input_token_encoder += 1
-            if "dataset_index" in config.input_shapes:
-                num_input_token_encoder -= 1
             self.register_buffer(
                 "vae_encoder_pos_enc",
                 create_sinusoidal_pos_embedding(num_input_token_encoder, config.dim_model).unsqueeze(0),
@@ -333,9 +331,6 @@ class ACT(nn.Module):
             # Prepare key padding mask for the transformer encoder. We have 1 or 2 extra tokens at the start of the
             # sequence depending whether we use the input states or not (cls and robot state)
             # False means not a padding token.
-            extra_tokens = 2 if self.use_input_state else 1
-            if "dataset_index" in batch:
-                extra_tokens -= 1
             cls_joint_is_pad = torch.full(
                 (batch_size, 2 if self.use_input_state else 1),
                 False,
