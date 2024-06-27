@@ -221,6 +221,8 @@ class ACT(nn.Module):
             num_input_token_encoder = 1 + config.chunk_size
             if self.use_input_state:
                 num_input_token_encoder += 1
+            if "dataset_index" in config.input_shapes:
+                num_input_token_encoder += 1
             self.register_buffer(
                 "vae_encoder_pos_enc",
                 create_sinusoidal_pos_embedding(num_input_token_encoder, config.dim_model).unsqueeze(0),
