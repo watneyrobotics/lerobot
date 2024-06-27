@@ -333,8 +333,6 @@ class ACT(nn.Module):
             # sequence depending whether we use the input states or not (cls and robot state)
             # False means not a padding token.
             extra_tokens = 2 if self.use_input_state else 1
-            if "dataset_index" in self.config.input_shapes:
-                extra_tokens += 1
 
             cls_joint_is_pad = torch.full(
                 (batch_size, extra_tokens),
