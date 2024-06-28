@@ -253,7 +253,7 @@ class ACT(nn.Module):
         # Dataset index embedding.
         if "dataset_index" in config.input_shapes:
             # create a FiLM layer to condition on dataset index after the image features
-            self.film_layer = FiLMLayer(num_relations=1, out_features=config.dim_model, dropout=0.0)
+            self.film_layer = FiLMLayer(num_relations=1, out_features=config.dim_model, dropout=0.2)
 
 
         # Image feature projection.
