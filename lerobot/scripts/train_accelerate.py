@@ -117,7 +117,7 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
     step = 0
 
     if cfg.resume == True or cfg.resume == "true":
-        subfolders = [p for p in out_dir.iterdir() if p.is_dir()]
+        subfolders = [p for p in out_dir.iterdir() if (p.is_dir() and p.name.isdigit())]
         latest_subfolder = max(subfolders, key=lambda p: os.path.getctime(str(p)))
         accelerator.print(f"Resuming from {latest_subfolder}")
         resume_step = int(latest_subfolder.name) + 1
