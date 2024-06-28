@@ -253,7 +253,7 @@ class ACT(nn.Module):
         # Dataset index embedding.
         if "dataset_index" in config.input_shapes:
             # create a FiLM layer to condition on dataset index after the image features
-            self.film_layer = FiLMLayer(num_relations=1, out_features=config.dim_model, dropout=0.5)
+            self.film_layer = FiLMLayer(num_relations=1, out_features=config.dim_model, dropout=0.0)
 
 
         # Image feature projection.
@@ -370,7 +370,6 @@ class ACT(nn.Module):
         if self.use_input_state:
             robot_state_embed = self.encoder_robot_state_input_proj(batch["observation.state"])  # (B, C)
 
-        # Dataset index.
         # Camera observation features and positional embeddings.
         all_cam_features = []
         all_cam_pos_embeds = []
@@ -378,18 +377,18 @@ class ACT(nn.Module):
         for cam_index in range(images.shape[-4]):
             cam_features = self.backbone(images[:, cam_index])["feature_map"]
             # TODO(rcadene, alexander-soare): remove call to `.to` to speedup forward ; precompute and use buffer
-
             cam_pos_embed = self.encoder_cam_feat_pos_embed(cam_features).to(dtype=cam_features.dtype)
             cam_features = self.encoder_img_feat_input_proj(cam_features)  # (B, C, h, w)
+
+            if "dataset_index" in self.config.input_shapes:
+                cam_features = self.film_layer(cam_features, batch["dataset_index"])
+
             all_cam_features.append(cam_features)
             all_cam_pos_embeds.append(cam_pos_embed)
         # Concatenate camera observation feature maps and positional embeddings along the width dimension.
         all_cam_features = torch.cat(all_cam_features, axis=-1)  # (B, C, h, num_cams * w)
         # Note: Flatten camera features to a 1D sequence.
         einops.rearrange(all_cam_features, "b c h w -> (h w) b c")  # (S, B ,C)
-        if "dataset_index" in self.config.input_shapes:
-            dataset_index_token = batch["dataset_index"]
-            all_cam_features = self.film_layer(all_cam_features, dataset_index_token)
         # Stack encoder input tokens:
         # [latent; (maybe) robot_state; (maybe) dataset_index; image_feature_map_pixels].
         standalone_tokens = [latent_embed]
