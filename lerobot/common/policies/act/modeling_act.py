@@ -87,7 +87,7 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
             self._action_queue = deque([], maxlen=self.config.n_action_steps)
 
     @torch.no_grad
-    def select_action(self, batch: dict[str, Tensor], dataset_index=None) -> Tensor:
+    def select_action(self, batch: dict[str, Tensor]) -> Tensor:
         """Select a single action given environment observations.
 
         This method wraps `select_actions` in order to return one action at a time for execution in the
