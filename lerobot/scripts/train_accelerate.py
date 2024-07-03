@@ -19,10 +19,6 @@ from accelerate import Accelerator
 
 from omegaconf import OmegaConf, DictConfig
 
-# Create a directory to store the training checkpoint.
-output_directory = Path("/fsx/marina_barannikov/outputs/train/mixed_precision_test_accelerated_act")
-output_directory.mkdir(parents=True, exist_ok=True)
-
 pretrained_model_dir_name = "pretrained_model"
 training_state_file_name = "training_state.pth"
 
