@@ -33,6 +33,8 @@ training:
 
   delta_timestamps:
     action: "[i / ${fps} for i in range(1 - ${policy.n_obs_steps}, 1 - ${policy.n_obs_steps} + ${policy.horizon})]"
+    observation.images.top: "[i / ${fps} for i in range(1 - ${policy.n_obs_steps}, 1)]"
+    observation.state: "[i / ${fps} for i in range(1 - ${policy.n_obs_steps}, 1)]"
 
   # The original implementation doesn't sample frames for the last 7 steps,
   # which avoids excessive padding and leads to improved training results.
@@ -73,9 +75,9 @@ policy:
   use_group_norm: True
   spatial_softmax_num_keypoints: 32
   # Unet.
-  down_dims: [512, 1024, 2048]
+  down_dims: [256, 512, 1024]
   kernel_size: 5
-  n_groups: 8
+  n_groups: 4
   diffusion_step_embed_dim: 128
   use_film_scale_modulation: True
   # Noise scheduler.
