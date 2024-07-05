@@ -38,7 +38,7 @@ training:
 
   # The original implementation doesn't sample frames for the last 7 steps,
   # which avoids excessive padding and leads to improved training results.
-  drop_n_last_frames: 41  # ${policy.horizon} - ${policy.n_action_steps} - ${policy.n_obs_steps} + 1
+  drop_n_last_frames: 23  # ${policy.horizon} - ${policy.n_action_steps} - ${policy.n_obs_steps} + 1
 
 eval:
   n_episodes: 50
@@ -49,7 +49,7 @@ policy:
 
   # Input / output structure.
   n_obs_steps: 2
-  horizon: 50
+  horizon: 32
   n_action_steps: 8
 
   input_shapes:

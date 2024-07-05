@@ -126,7 +126,6 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
 
         for batch in active_dataloader:
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
-            accelerator.print("Batch size : ", {batch["observation.state"].shape})
 
             output_dict = policy.forward(batch)
             loss = output_dict["loss"]
@@ -170,7 +169,7 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
                         start_seed=cfg.seed,
                     )
 
-                    for k, v in eval_info.items():
+                    for k, v in eval_info["aggregated"].items():
                         accelerator.print({f"eval/{k}": v}, step=step+1)
                         if not isinstance(v, (int, float)):
                             accelerator.print(f"Skipping {k} from logging because it is not a scalar")
