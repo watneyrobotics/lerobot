@@ -126,7 +126,6 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
 
         for batch in active_dataloader:
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
-            accelerator.print("Batch size : ", {batch["observation.state"].shape})
 
             output_dict = policy.forward(batch)
             loss = output_dict["loss"]
