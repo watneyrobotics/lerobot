@@ -28,12 +28,15 @@ def train(cfg, job_name, out_dir, resume_checkpoint=None):
     out_dir=Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    accelerator = Accelerator(log_with="wandb")
-
-    accelerator.init_trackers(
-        project_name="lerobot",
-        init_kwargs={"wandb": {"name":job_name, "job_type": "train", "config": OmegaConf.to_container(cfg, resolve=True)}}
-    )
+    if cfg.wandb.enable=="true":
+        accelerator = Accelerator(log_with="wandb")
+        accelerator.init_trackers(
+            project_name="lerobot",
+            init_kwargs={"wandb": {"name":job_name, "job_type": "train", "config": OmegaConf.to_container(cfg, resolve=True)}}
+        )
+    else : 
+        accelerator = Accelerator()
+        
     # Check device is available
     device = accelerator.device
     print(device)
