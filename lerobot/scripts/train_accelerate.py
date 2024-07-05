@@ -19,10 +19,6 @@ from accelerate import Accelerator
 
 from omegaconf import OmegaConf, DictConfig
 
-# Create a directory to store the training checkpoint.
-output_directory = Path("/fsx/marina_barannikov/outputs/train/mixed_precision_test_accelerated_act")
-output_directory.mkdir(parents=True, exist_ok=True)
-
 pretrained_model_dir_name = "pretrained_model"
 training_state_file_name = "training_state.pth"
 
@@ -35,12 +31,15 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
     out_dir=Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    accelerator = Accelerator(log_with="wandb")
+    if cfg.wandb.enable=="true":
+        accelerator = Accelerator(log_with="wandb")
 
-    accelerator.init_trackers(
-        project_name="lerobot",
-        init_kwargs={"wandb": {"name":job_name, "job_type": "train", "config": OmegaConf.to_container(cfg, resolve=True)}}
-    )
+        accelerator.init_trackers(
+            project_name="lerobot",
+            init_kwargs={"wandb": {"name":job_name, "job_type": "train", "config": OmegaConf.to_container(cfg, resolve=True)}}
+        )
+    else : 
+        accelerator = Accelerator()
     # Check device is available
     device = accelerator.device
     print(device)
@@ -127,6 +126,7 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
 
         for batch in active_dataloader:
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
+            accelerator.print("Batch size : ", {batch["observation.state"].shape})
 
             output_dict = policy.forward(batch)
             loss = output_dict["loss"]
