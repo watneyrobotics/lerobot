@@ -31,7 +31,7 @@ def train(cfg: DictConfig, job_name, out_dir, resume_checkpoint=None):
     out_dir=Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if cfg.wandb.enable=="true":
+    if cfg.wandb.enable:
         accelerator = Accelerator(log_with="wandb")
 
         accelerator.init_trackers(
