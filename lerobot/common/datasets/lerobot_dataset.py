@@ -176,7 +176,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
 
         dataset_name, action = "aloha_sim_transfer_cube", item["action"]
         img = tensor_to_image(item["observation.images.top"])
-        lang = "Pick up the red cube with the right arm and transfer it to the left arm."
+        lang = "pick the red cube with the right arm and transfer it to the left arm."
 
         # Construct Chat-based Prompt
         prompt_builder = self.prompt_builder_fn("openvla")
@@ -204,6 +204,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
             "input_ids": input_ids,
             "labels": labels,
             "dataset_name": dataset_name,
+            "action": action,
+            "next.done": item["next.done"],
         }
 
     def __repr__(self):

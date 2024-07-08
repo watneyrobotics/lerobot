@@ -18,6 +18,7 @@ from collections import deque
 from PIL import Image
 
 from action_tokenizer import ActionTokenizer
+from data_utils import get_dataset_statistics
 from base_prompt import PurePromptBuilder
 from collator import PaddedCollatorForActionPrediction
 
@@ -70,10 +71,10 @@ class FinetuneConfig:
     adapter_tmp_dir: Path = Path("adapter-tmp")                     # Temporary directory for LoRA weights before fusing
 
     # Fine-tuning Parameters
-    batch_size: int = 16                                            # Fine-tuning batch size
+    batch_size: int = 64                                            # Fine-tuning batch size
     max_steps: int = 10000                                        # Max number of fine-tuning steps
     save_steps: int = 2000                                          # Interval for checkpoint saving
-    learning_rate: float = 2e-5                                     # Fine-tuning learning rate
+    learning_rate: float = 1e-5                                     # Fine-tuning learning rate
     grad_accumulation_steps: int = 1                                # Gradient accumulation steps
     image_aug: bool = True                                          # Whether to train with image augmentations
     shuffle_buffer_size: int = 100_000                              # Dataloader shuffle buffer size (can reduce if OOM)
@@ -95,6 +96,11 @@ def finetune(cfg : FinetuneConfig):
     run_dir = cfg.run_root_dir
     os.makedirs(run_dir, exist_ok=True)
     print(f"Creating run directory at {run_dir}")
+
+    dataset = LeRobotDataset(cfg.dataset_repo_id, delta_timestamps=cfg.delta_timestamps, action_tokenizer=action_tokenizer,
+                             processor=processor, prompt_builder_fn=prompt_builder_fn)
+
+    get_dataset_statistics(dataset, os.path.join(run_dir, "dataset_statistics.json"))
 
     quantization_config = None
 
@@ -124,10 +130,7 @@ def finetune(cfg : FinetuneConfig):
     optimizer = AdamW(trainable_params, lr=cfg.learning_rate)
     print(f"Created AdamW Optimizer with Learning Rate: {cfg.learning_rate}")
 
-    dataset = LeRobotDataset(cfg.dataset_repo_id, delta_timestamps=cfg.delta_timestamps, action_tokenizer=action_tokenizer,
-                             processor=processor, prompt_builder_fn=prompt_builder_fn)
 
-    print(f"First item in dataset: {dataset[0]}")
     # Create Collator and DataLoader
     collator = PaddedCollatorForActionPrediction(
         processor.tokenizer.model_max_length, processor.tokenizer.pad_token_id, padding_side="right"
@@ -198,11 +201,12 @@ def finetune(cfg : FinetuneConfig):
                 # Save Model Checkpoint
                 if step > 0 and step % cfg.save_steps == 0:
                     print(f"Saving Model Checkpoint for Step {step}")
+                    step_dir = run_dir / f"step-{step}"
+                    save_dir = adapter_dir / f"step-{step}"
 
-                    save_dir = adapter_dir if cfg.use_lora else run_dir
 
                     # Save Processor & Weights
-                    processor.save_pretrained(run_dir)
+                    processor.save_pretrained(step_dir)
                     vla.save_pretrained(save_dir)
 
                     # Merge LoRA weights into model backbone for faster inference
@@ -212,7 +216,7 @@ def finetune(cfg : FinetuneConfig):
                         )
                         merged_vla = PeftModel.from_pretrained(base_vla, adapter_dir)
                         merged_vla = merged_vla.merge_and_unload()
-                        merged_vla.save_pretrained(run_dir)
+                        merged_vla.save_pretrained(step_dir)
                 step += 1
 
 if __name__ == "__main__":

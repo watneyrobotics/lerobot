@@ -170,21 +170,6 @@ def finetune(cfg: FinetuneConfig) -> None:
 
     # Create Action Tokenizer
     action_tokenizer = ActionTokenizer(processor.tokenizer)
-
-    # Load Fine-tuning Dataset =>> note that we use an RLDS-formatted dataset following Open X-Embodiment by default.
-    #   =>> If you want to use a non-RLDS dataset (e.g., a standard PyTorch Dataset) see the following commented block.
-    #   =>> Note that our training code does not loop over epochs because the RLDS loader does this implicitly; if using
-    #       your own Dataset, make sure to add the appropriate logic to the training loop!
-    #
-    # ---
-    # from prismatic.vla.datasets import DummyDataset
-    #
-    # vla_dataset = DummyDataset(
-    #     action_tokenizer,
-    #     processor.tokenizer,
-    #     image_transform=processor.image_processor.apply_transform,
-    #     prompt_builder_fn=PurePromptBuilder if "v01" not in cfg.vla_path else VicunaV15ChatPromptBuilder,
-    # )
     # ---
     batch_transform = RLDSBatchTransform(
         action_tokenizer,
