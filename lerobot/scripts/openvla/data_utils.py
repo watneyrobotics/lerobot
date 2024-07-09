@@ -6,7 +6,10 @@ from tqdm import tqdm
 
 
 def get_dataset_statistics(dataset, save_dir):
-    path = os.path.join(save_dir, f"dataset_statistics.json")
+    if os.path.exists(save_dir):
+        print(f"Loading dataset statistics from {save_dir}")
+        with open(save_dir, "r") as f:
+            return json.load(f)
     print(f"Got stats : {dataset.stats}")
     cardinality = len(dataset)
     print(f"Computing dataset statistics for {cardinality} trajectories.")

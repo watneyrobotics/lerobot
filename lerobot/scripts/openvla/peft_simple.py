@@ -71,7 +71,7 @@ class FinetuneConfig:
     adapter_tmp_dir: Path = Path("adapter-tmp")                     # Temporary directory for LoRA weights before fusing
 
     # Fine-tuning Parameters
-    batch_size: int = 64                                            # Fine-tuning batch size
+    batch_size: int = 16                                            # Fine-tuning batch size
     max_steps: int = 10000                                        # Max number of fine-tuning steps
     save_steps: int = 2000                                          # Interval for checkpoint saving
     learning_rate: float = 1e-5                                     # Fine-tuning learning rate
@@ -201,20 +201,20 @@ def finetune(cfg : FinetuneConfig):
                 # Save Model Checkpoint
                 if step > 0 and step % cfg.save_steps == 0:
                     print(f"Saving Model Checkpoint for Step {step}")
-                    step_dir = run_dir / f"step-{step}"
-                    save_dir = adapter_dir / f"step-{step}"
+                    step_dir = str(run_dir / f"step-{step}")
+                    finetuned_save_dir = str(adapter_dir / f"step-{step}")
 
 
                     # Save Processor & Weights
                     processor.save_pretrained(step_dir)
-                    vla.save_pretrained(save_dir)
+                    vla.save_pretrained(finetuned_save_dir)
 
                     # Merge LoRA weights into model backbone for faster inference
                     if cfg.use_lora:
                         base_vla = AutoModelForVision2Seq.from_pretrained(
                             cfg.vla_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True
                         )
-                        merged_vla = PeftModel.from_pretrained(base_vla, adapter_dir)
+                        merged_vla = PeftModel.from_pretrained(base_vla, finetuned_save_dir)
                         merged_vla = merged_vla.merge_and_unload()
                         merged_vla.save_pretrained(step_dir)
                 step += 1
