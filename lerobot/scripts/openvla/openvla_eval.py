@@ -40,7 +40,8 @@ def rollout_single_episode(
     ep_frames = []
 
     done = False
-    while not done:
+    max_steps = 10
+    while not done or len(all_actions) < max_steps:
         with torch.inference_mode():
             action = inference.step(observation_image, task_description=prompt)
         action = action.squeeze()
@@ -88,7 +89,8 @@ def main( output_dir, render_video, hydra_config_path, config_overrides):
     print("Environment", hydra_cfg.env.name, hydra_cfg.env.task)
 
     # Load inference model
-    inference = OpenVLAInference(policy_setup = "aloha")
+    model_path = "/admin/home/marina_barannikov/projects/lerobot/lerobot/scripts/openvla/runs/step-4000"
+    inference = OpenVLAInference(policy_setup = "aloha", saved_model_path = model_path, unnorm_key = "aloha")
     print("Loaded inference model.")
     # Create environment
     env = make_env(hydra_cfg, n_envs=1)
@@ -107,7 +109,7 @@ def main( output_dir, render_video, hydra_config_path, config_overrides):
 if __name__ == "__main__":
     seed = 84
     output_dir = "outputs"
-    render_video = False
+    render_video = True
     hydra_config_path = "/admin/home/marina_barannikov/projects/lerobot/lerobot/configs/default.yaml"
     config_overrides = ["env=aloha", "dataset_repo_id=lerobot/aloha_sim_transfer_cube_human", "env.task=AlohaTransferCube-v0"]
 

@@ -17,7 +17,7 @@ def get_from_url(url):
     return Image.open(BytesIO(requests.get(url).content))
 
 device = "cuda:0"
-vla_path = "/admin/home/marina_barannikov/projects/lerobot/runs/openvlamodel"
+vla_path = "/admin/home/marina_barannikov/projects/lerobot/lerobot/scripts/openvla/runs/step-4000"
 
 def get_single_inference():
     # Load Processor & VLA
@@ -32,7 +32,7 @@ def get_single_inference():
     ).to(device)
 
     # Grab image input & format prompt
-    image: Image.Image = get_from_url("https://cdn-uploads.huggingface.co/production/uploads/66583df28724def2ab9d231d/stCbuw8qBxIine_HAmjKF.png")
+    image: Image.Image = get_from_url("https://datasets-server.huggingface.co/assets/lerobot/aloha_sim_transfer_cube_scripted_image/--/0fb0e9c38e8e876678502996a0fe6b123f59c57a/--/default/train/3/observation.images.top/image.jpg?Expires=1720519339&Signature=zwrq4YfonSOB3oahBOUlm0GnJdBOlWkWFk0YYJmruBJDk47q3CRKGprj0akVt3xqI3~XhG64OqHmEwBBaWZtSrbVPXobnKJvU8EsrNBQsvHBj-XZxicJJuHVdtWDRSCTRLurnYQ1dHLjAM-twiaoS9WOBuPsKDPqWbjjm2HW2OQZGgnAsWf9nJNeB2Z0nko5xdhBGn8YJC-8wk1QpemnOROpJd352X3Q927oK~mHV4em4fpamf2sQor3O7bv078B46QdoMuwb-JggMwc84TDeouANw6j4X2wtDElqIyKf9yLFMXoz~fE75ciDD45KclUQ0m6pyYYcgu8byhuUeDHhg__&Key-Pair-Id=K3EI6M078Z3AC3")
     prompt = "In: What action should the robot take to pick up the red cube with the right arm and transfer it to the left arm? \nOut:"
 
     # Predict Action (7-DoF; un-normalize for BridgeData V2)
@@ -47,8 +47,8 @@ def get_single_inference():
             
     # Processor Attributes
 
-    print_attribute_names(inputs, "inputs")
-    print("Vla config namemed modules : ", vla.named_modules)
+    #print_attribute_names(inputs, "inputs")
+    #print("Vla config namemed modules : ", vla.named_modules)
 
     with open('runs/dataset_statistics.json', 'r') as f:
         dataset_stats_dict = json.load(f)
