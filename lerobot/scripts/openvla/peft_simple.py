@@ -65,19 +65,18 @@ class FinetuneConfig:
     dataset_repo_id = "lerobot/aloha_sim_transfer_cube_human" 
     chunk_size = 100
     fps = 50
-    job_name: str = "finetune-openvla"                              # Name of W&B job
+    job_name: str = "finetune-openvla-lr-5e4"                              # Name of W&B job
     delta_timestamps = None                             # Delta timestamps for action prediction
     run_root_dir: Path = Path("runs")                               # Path to directory to store logs & checkpoints
     adapter_tmp_dir: Path = Path("adapter-tmp")                     # Temporary directory for LoRA weights before fusing
 
     # Fine-tuning Parameters
     batch_size: int = 16                                            # Fine-tuning batch size
-    max_steps: int = 10000                                        # Max number of fine-tuning steps
+    max_steps: int = 10000                                          # Max number of fine-tuning steps
     save_steps: int = 2000                                          # Interval for checkpoint saving
-    learning_rate: float = 1e-5                                     # Fine-tuning learning rate
+    learning_rate: float = 5e-4                                     # Fine-tuning learning rate
     grad_accumulation_steps: int = 1                                # Gradient accumulation steps
-    image_aug: bool = True                                          # Whether to train with image augmentations
-    shuffle_buffer_size: int = 100_000                              # Dataloader shuffle buffer size (can reduce if OOM)
+    image_aug: bool = True                                          # Whether to use image augmentation
 
     # LoRA Arguments
     use_lora: bool = True                                           # Whether to use LoRA fine-tuning
@@ -100,7 +99,7 @@ def finetune(cfg : FinetuneConfig):
     dataset = LeRobotDataset(cfg.dataset_repo_id, delta_timestamps=cfg.delta_timestamps, action_tokenizer=action_tokenizer,
                              processor=processor, prompt_builder_fn=prompt_builder_fn)
 
-    get_dataset_statistics(dataset, os.path.join(run_dir, "dataset_statistics.json"))
+    dataset_stats_dict = get_dataset_statistics(dataset, os.path.join(run_dir, "dataset_statistics.json"))
 
     quantization_config = None
 
@@ -113,6 +112,7 @@ def finetune(cfg : FinetuneConfig):
         )
 
     vla = vla.to(device)
+    vla.norm_stats['aloha'] = dataset_stats_dict
 
     if cfg.use_lora:
         lora_config = LoraConfig(
@@ -140,7 +140,7 @@ def finetune(cfg : FinetuneConfig):
         batch_size=cfg.batch_size,
         sampler=None,
         collate_fn=collator,
-        num_workers=0,  # Important =>> Set to 0 if using RLDS; TFDS rolls its own parallelism!
+        num_workers=4,  # Important =>> Set to 0 if using RLDS; TFDS rolls its own parallelism!
     )
 
     wandb.init(project="lerobot", name=cfg.job_name, config=cfg)
@@ -192,6 +192,8 @@ def finetune(cfg : FinetuneConfig):
                 )
                 action_l1_loss = torch.nn.functional.l1_loss(continuous_actions_pred, continuous_actions_gt)
 
+                step += 1
+
                 # Log metrics to W&B
                 wandb.log(
                     {"train_loss": loss.item(), "action_accuracy": action_accuracy.item(), "l1_loss": action_l1_loss.item()},
@@ -199,7 +201,7 @@ def finetune(cfg : FinetuneConfig):
                 )
 
                 # Save Model Checkpoint
-                if step > 0 and step % cfg.save_steps == 0:
+                if step % cfg.save_steps == 0:
                     print(f"Saving Model Checkpoint for Step {step}")
                     step_dir = str(run_dir / f"step-{step}")
                     finetuned_save_dir = str(adapter_dir / f"step-{step}")
@@ -217,7 +219,7 @@ def finetune(cfg : FinetuneConfig):
                         merged_vla = PeftModel.from_pretrained(base_vla, finetuned_save_dir)
                         merged_vla = merged_vla.merge_and_unload()
                         merged_vla.save_pretrained(step_dir)
-                step += 1
+                
 
 if __name__ == "__main__":
     cfg = FinetuneConfig()

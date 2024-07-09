@@ -1,10 +1,10 @@
-import einops
 import gymnasium as gym
 import numpy as np
 import torch
 from pathlib import Path
 import json
 import imageio
+from PIL import Image
 
 from make_env import make_env
 from lerobot.common.utils.utils import init_hydra_config, set_global_seed
@@ -16,6 +16,7 @@ def rollout_single_episode(
     render_video: bool = False,
     video_path: str = "./eval_episode.mp4",
     prompt: str = "",
+    fps: int = 30,
 ) -> dict:
     """Run a single episode rollout with a given environment and policy.
 
@@ -40,12 +41,13 @@ def rollout_single_episode(
     ep_frames = []
 
     done = False
-    max_steps = 10
-    while not done or len(all_actions) < max_steps:
+    max_steps = 200
+    while not done and len(all_actions) < max_steps:
         with torch.inference_mode():
             action = inference.step(observation_image, task_description=prompt)
         action = action.squeeze()
         next_observation, reward, done, truncated, info = env.step(action)
+        observation_image = next_observation["pixels"]["top"]
 
         all_actions.append(torch.tensor(action))
         all_rewards.append(torch.tensor(reward))
@@ -54,17 +56,16 @@ def rollout_single_episode(
 
         if render_video:
             # Render the current frame and store it
-            frame = env.render(mode='rgb_array')
+            frame = Image.fromarray(next_observation["pixels"]["top"])
             ep_frames.append(frame)
 
-        observation = next_observation
 
     # Stack lists of tensors into tensors
     ret = {
-        "action": torch.stack(all_actions),
-        "reward": torch.stack(all_rewards),
-        "success": torch.stack(all_successes),
-        "done": torch.stack(all_dones),
+        "action": torch.stack(all_actions).tolist(),
+        "reward": torch.stack(all_rewards).tolist(),
+        "success": torch.stack(all_successes).tolist(),
+        "done": torch.stack(all_dones).tolist(),
     }
 
     # Save video if rendering is enabled
@@ -74,7 +75,7 @@ def rollout_single_episode(
         video_dir.mkdir(parents=True, exist_ok=True)
 
         # Save video using imageio
-        imageio.mimwrite(video_path, ep_frames, fps=env.metadata["video.frames_per_second"])
+        imageio.mimwrite(video_path, ep_frames, fps=fps)
 
     return ret
 
@@ -89,16 +90,16 @@ def main( output_dir, render_video, hydra_config_path, config_overrides):
     print("Environment", hydra_cfg.env.name, hydra_cfg.env.task)
 
     # Load inference model
-    model_path = "/admin/home/marina_barannikov/projects/lerobot/lerobot/scripts/openvla/runs/step-4000"
+    model_path = "/admin/home/marina_barannikov/projects/lerobot/runs/openvlamodel"
     inference = OpenVLAInference(policy_setup = "aloha", saved_model_path = model_path, unnorm_key = "aloha")
     print("Loaded inference model.")
     # Create environment
     env = make_env(hydra_cfg, n_envs=1)
     print("Created environment.")
-
+    fps = env.metadata["render_fps"]
     # Run a single episode rollout
     print("Running rollout...")
-    rollout_metrics = rollout_single_episode(env, inference, render_video=render_video, prompt=prompt)
+    rollout_metrics = rollout_single_episode(env, inference, render_video=render_video, prompt=prompt, fps=fps)
 
     # Save rollout metrics
     output_dir = Path(output_dir)
