@@ -16,7 +16,6 @@
 import argparse
 import logging
 import time
-from contextlib import nullcontext
 from pathlib import Path
 from pprint import pformat
 
@@ -45,10 +44,6 @@ from lerobot.common.utils.utils import (
     set_global_seed,
 )
 from lerobot.scripts.eval import eval_policy
-
-from accelerate.utils import set_seed
-
-set_seed(0)
 
 def make_optimizer_and_scheduler(cfg, policy):
     if cfg.policy.name == "act":
@@ -114,10 +109,6 @@ def update_policy(
 ):
     """Returns a dictionary of items for logging."""
     start_time = time.perf_counter()
-    if accelerator:
-        device = accelerator.device
-    else:
-        device = get_device_from_parameters(policy.parameters())
 
     policy.train()
 
@@ -132,9 +123,9 @@ def update_policy(
     # Unscale the graident of the optimzer's assigned params in-place **prior to gradient clipping**.
     grad_scaler.unscale_(optimizer)
     if accelerator:
-        grad_norm = accelerator.clip_grad_norm_(policy.parameters(), grad_clip_norm)
+        grad_norm = accelerator.clip_grad_norm_(policy.parameters(), grad_clip_norm, error_if_nonfinite=False)
     else:
-        grad_norm = torch.nn.utils.clip_grad_norm_(policy.parameters(), grad_clip_norm)
+        grad_norm = torch.nn.utils.clip_grad_norm_(policy.parameters(), grad_clip_norm, error_if_nonfinite=False)
     # Optimizer's gradients are already unscaled, so scaler.step does not unscale them,
     # although it still skips optimizer.step() if the gradients contain infs or NaNs.
     grad_scaler.step(optimizer)
@@ -302,19 +293,19 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     if accelerator:
         device = accelerator.device
     else:
-        device = cfg.device
+        device = get_safe_torch_device(cfg.device, log=True)
  
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
   
-    if not accelerator or accelerator.is_main_process:
-        logging.info("make_dataset")
-        offline_dataset = make_dataset(cfg)
-        if isinstance(offline_dataset, MultiLeRobotDataset):
-            logging.info(
-                "Multiple datasets were provided. Applied the following index mapping to the provided datasets: "
-                f"{pformat(offline_dataset.repo_id_to_index , indent=2)}"
-            )
+
+    logging.info("make_dataset")
+    offline_dataset = make_dataset(cfg)
+    if isinstance(offline_dataset, MultiLeRobotDataset):
+        logging.info(
+            "Multiple datasets were provided. Applied the following index mapping to the provided datasets: "
+            f"{pformat(offline_dataset.repo_id_to_index , indent=2)}"
+        )
 
     # Create environment used for evaluating checkpoints during training on simulation data.
     # On real-world data, no need to create an environment as evaluations are done outside train.py,
@@ -322,7 +313,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     eval_env = None
     if cfg.training.eval_freq > 0:
         if accelerator:
-            raise NotImplementedError("Evaluation is not supported with accelerate.")
+            raise NotImplementedError("Evaluation is not yet supported with accelerate.")
         else:
             logging.info("make_env")
             eval_env = make_env(cfg)
@@ -425,15 +416,14 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
         pin_memory=device.type != "cpu",
         drop_last=False,
     )
-
-    policy, optimizer, dataloader, lr_scheduler = accelerator.prepare(
-        policy, optimizer, dataloader, lr_scheduler
-        )
-    
+    if accelerator:
+        policy, optimizer, dataloader, lr_scheduler = accelerator.prepare(
+            policy, optimizer, dataloader, lr_scheduler
+            )
+        
     dl_iter = cycle(dataloader)
     
     policy.to(device)
-    
     policy.train()
     for _ in range(step, cfg.training.offline_steps):
         if step == 0:
@@ -469,10 +459,11 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
 
 
 @hydra.main(version_base="1.2", config_name="default", config_path="../configs")
-def train_cli(cfg: dict, accelerate: bool = False):
-    if accelerate:
+def train_cli(cfg: dict):
+    if "accelerate" in cfg:
         import accelerate
         accelerator = accelerate.Accelerator()
+        print(cfg.device)
         train(
             cfg,
             out_dir=hydra.core.hydra_config.HydraConfig.get().run.dir,
@@ -497,25 +488,4 @@ def train_notebook(out_dir=None, job_name=None, config_name="default", config_pa
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("--accelerate-launch", help="Wheather to launch training with accelerate")
-    parser.add_argument("--is-main-process", help="If the script was launched with accelerate", default=False)
-    parser.add_argument(
-        "overrides",
-        nargs="*",
-        help="Any key=value arguments to override config values (use dots for.nested=overrides)",
-        )
-    args = parser.parse_args()
-    if args.accelerate_launch:
-        if args.is_main_process:
-            print("Starting training script with accelerate")
-            train_cli(accelerate=True)
-        else:
-            print("Launching training script with accelerate")
-            import subprocess
-            cmd = ["accelerate", "launch", "--num_processes=1", "train.py --is-main-process=True --accelerate-launch=True"]
-            subprocess.run(cmd)
-    else: 
-        train_cli()
+    train_cli()
