@@ -15,7 +15,7 @@ override_dataset_stats:
 
 training:
   accelerate:
-    enabled: false
+    enable: false
     use_amp: false
 
   offline_steps: 100000
