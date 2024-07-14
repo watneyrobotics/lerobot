@@ -1,118 +1,129 @@
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset, MultiLeRobotDataset
-
-import torch
 import os
-
-from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.optim import AdamW
-from torch.utils.data import DataLoader
-
-from transformers import AutoModelForVision2Seq, AutoProcessor, BitsAndBytesConfig
-from transformers.modeling_outputs import CausalLMOutputWithPast
-import wandb
 from pathlib import Path
 
+import torch
 import tqdm
-from collections import deque
-from PIL import Image
-
 from action_tokenizer import ActionTokenizer
-from data_utils import get_dataset_statistics
 from base_prompt import PurePromptBuilder
 from collator import PaddedCollatorForActionPrediction
+from data_utils import get_dataset_statistics
+from peft import LoraConfig, PeftModel, get_peft_model
+from torch.optim import AdamW
+from torch.utils.data import DataLoader
+from transformers import AutoModelForVision2Seq, AutoProcessor
+from transformers.modeling_outputs import CausalLMOutputWithPast
+
+import wandb
+from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
 
-
-def prepare_data(batch, processor, action_tokenizer, prompt_builder_fn, IGNORE_INDEX=-100):
-    dataset_name, action = "aloha_transfer_cube", batch["action"]
-    print(batch["observation.images.top"]["path"])
-    img = Image.fromarray(batch["observation.images.top"])
-    lang = "Pick up the cube with the right arm and transfer the cube to the left arm."
-
-    # Construct Chat-based Prompt
-    prompt_builder = prompt_builder_fn("openvla")
-    conversation = [
-        {"from": "human", "value": f"What action should the robot take to {lang}?"},
-        {"from": "gpt", "value": action_tokenizer(action)},
-    ]
-    for turn in conversation:
-        prompt_builder.add_turn(turn["from"], turn["value"])
-
-    # Tokenize
-    input_ids = processor.tokenizer(prompt_builder.get_prompt(), add_special_tokens=True).input_ids
-    labels = list(input_ids)
-
-    # Tensorize
-    input_ids, labels = torch.tensor(input_ids), torch.tensor(labels)
-    pixel_values = processor.image_processor(img, return_tensors="pt").pixel_values[0]
-
-    # Ignore unnecessary parts in the labels
-    labels[: -(len(action) + 1)] = IGNORE_INDEX
-    labels[-1] = IGNORE_INDEX
-
-    return {
-        "pixel_values": pixel_values,
-        "input_ids": input_ids,
-        "labels": labels,
-        "dataset_name": dataset_name,
+def normalize(metadata, dataset):
+    keys_to_normalize = {
+        "action": "action",
     }
 
+    # Convert metadata to tensors
+    low = {}
+    high = {}
+    mask = {}
+    zeros_mask = {}
+
+    for key, traj_key in keys_to_normalize.items():
+        low[traj_key] = torch.tensor(metadata[key]["q01"], dtype=torch.float32)
+        high[traj_key] = torch.tensor(metadata[key]["q99"], dtype=torch.float32)
+        mini = torch.tensor(metadata[key]["min"], dtype=torch.float32)
+        mask[traj_key] = torch.tensor(
+            metadata[key].get("mask", torch.ones_like(mini, dtype=torch.bool)), dtype=torch.bool
+        )
+        zeros_mask[traj_key] = torch.tensor(metadata[key]["min"] == metadata[key]["max"], dtype=torch.bool)
+
+    def normalize_sample(sample):
+        for _, traj_key in keys_to_normalize.items():
+            sample[traj_key] = torch.where(
+                mask[traj_key],
+                torch.clamp(
+                    2 * (sample[traj_key] - low[traj_key]) / (high[traj_key] - low[traj_key] + 1e-8) - 1,
+                    -1,
+                    1,
+                ),
+                sample[traj_key],
+            )
+            sample[traj_key] = torch.where(
+                zeros_mask[traj_key], torch.tensor(0.0, dtype=sample[traj_key].dtype), sample[traj_key]
+            )
+        return sample
+
+    dataset.hf_dataset = dataset.hf_dataset.map(normalize_sample, num_proc=4)
+    return dataset
+
+
 class FinetuneConfig:
-    vla_path: str = "openvla/openvla-7b"                            # Path to OpenVLA model (on HuggingFace Hub)
+    vla_path: str = "openvla/openvla-7b"  # Path to OpenVLA model (on HuggingFace Hub)
 
     # Directory Paths
-    dataset_repo_id = "lerobot/aloha_sim_transfer_cube_human" 
+    dataset_repo_id = "lerobot/aloha_sim_transfer_cube_human"
     chunk_size = 100
+    wandb: bool = True  # Whether to log to W&B
     fps = 50
-    job_name: str = "finetune-openvla-lr-5e4"                              # Name of W&B job
-    delta_timestamps = None                             # Delta timestamps for action prediction
-    run_root_dir: Path = Path("runs")                               # Path to directory to store logs & checkpoints
-    adapter_tmp_dir: Path = Path("adapter-tmp")                     # Temporary directory for LoRA weights before fusing
+    job_name: str = "finetune-openvla-lr-5e4"  # Name of W&B job
+    delta_timestamps = None  # Delta timestamps for action prediction
+    run_root_dir: Path = Path("normalized/runs")  # Path to directory to store logs & checkpoints
+    adapter_tmp_dir: Path = Path(
+        "normalized/adapter-tmp"
+    )  # Temporary directory for LoRA weights before fusing
 
     # Fine-tuning Parameters
-    batch_size: int = 16                                            # Fine-tuning batch size
-    max_steps: int = 10000                                          # Max number of fine-tuning steps
-    save_steps: int = 2000                                          # Interval for checkpoint saving
-    learning_rate: float = 5e-4                                     # Fine-tuning learning rate
-    grad_accumulation_steps: int = 1                                # Gradient accumulation steps
-    image_aug: bool = True                                          # Whether to use image augmentation
+    batch_size: int = 16  # Fine-tuning batch size
+    max_steps: int = 10000  # Max number of fine-tuning steps
+    save_steps: int = 2000  # Interval for checkpoint saving
+    learning_rate: float = 5e-4  # Fine-tuning learning rate
+    grad_accumulation_steps: int = 1  # Gradient accumulation steps
+    image_aug: bool = True  # Whether to use image augmentation
 
     # LoRA Arguments
-    use_lora: bool = True                                           # Whether to use LoRA fine-tuning
-    lora_rank: int = 32                                             # Rank of LoRA weight matrix
-    lora_dropout: float = 0.0                                       # Dropout applied to LoRA weights
-    use_quantization: bool = False                                  # Whether to 4-bit quantize VLA for LoRA fine-tuning
-                                                                    #   => CAUTION: Reduces memory but hurts performance
+    use_lora: bool = True  # Whether to use LoRA fine-tuning
+    lora_rank: int = 32  # Rank of LoRA weight matrix
+    lora_dropout: float = 0.0  # Dropout applied to LoRA weights
+    use_quantization: bool = False  # Whether to 4-bit quantize VLA for LoRA fine-tuning
+    #   => CAUTION: Reduces memory but hurts performance
 
-def finetune(cfg : FinetuneConfig):
+
+def finetune(cfg: FinetuneConfig):
     device = torch.device("cuda")
     processor = AutoProcessor.from_pretrained(cfg.vla_path, trust_remote_code=True)
     action_tokenizer = ActionTokenizer(processor.tokenizer)
     prompt_builder_fn = PurePromptBuilder
 
     adapter_dir = cfg.adapter_tmp_dir
+
     run_dir = cfg.run_root_dir
     os.makedirs(run_dir, exist_ok=True)
     print(f"Creating run directory at {run_dir}")
 
-    dataset = LeRobotDataset(cfg.dataset_repo_id, delta_timestamps=cfg.delta_timestamps, action_tokenizer=action_tokenizer,
-                             processor=processor, prompt_builder_fn=prompt_builder_fn)
+    dataset = LeRobotDataset(
+        cfg.dataset_repo_id,
+        delta_timestamps=cfg.delta_timestamps,
+        action_tokenizer=action_tokenizer,
+        processor=processor,
+        prompt_builder_fn=prompt_builder_fn,
+    )
 
     dataset_stats_dict = get_dataset_statistics(dataset, os.path.join(run_dir, "dataset_statistics.json"))
+
+    dataset = normalize(dataset_stats_dict, dataset)
 
     quantization_config = None
 
     vla = AutoModelForVision2Seq.from_pretrained(
-            cfg.vla_path,
-            torch_dtype=torch.bfloat16,
-            quantization_config=quantization_config,
-            low_cpu_mem_usage=True,
-            trust_remote_code=True,
-        )
+        cfg.vla_path,
+        torch_dtype=torch.bfloat16,
+        quantization_config=quantization_config,
+        low_cpu_mem_usage=True,
+        trust_remote_code=True,
+    )
 
     vla = vla.to(device)
-    vla.norm_stats['aloha'] = dataset_stats_dict
+    vla.norm_stats["aloha"] = dataset_stats_dict
 
     if cfg.use_lora:
         lora_config = LoraConfig(
@@ -130,7 +141,6 @@ def finetune(cfg : FinetuneConfig):
     optimizer = AdamW(trainable_params, lr=cfg.learning_rate)
     print(f"Created AdamW Optimizer with Learning Rate: {cfg.learning_rate}")
 
-
     # Create Collator and DataLoader
     collator = PaddedCollatorForActionPrediction(
         processor.tokenizer.model_max_length, processor.tokenizer.pad_token_id, padding_side="right"
@@ -142,8 +152,8 @@ def finetune(cfg : FinetuneConfig):
         collate_fn=collator,
         num_workers=4,  # Important =>> Set to 0 if using RLDS; TFDS rolls its own parallelism!
     )
-
-    wandb.init(project="lerobot", name=cfg.job_name, config=cfg)
+    if cfg.wandb:
+        wandb.init(project="lerobot", name=cfg.job_name, config=cfg)
 
     step = 0
     vla.train()
@@ -152,7 +162,6 @@ def finetune(cfg : FinetuneConfig):
     with tqdm.tqdm(total=cfg.max_steps, leave=False) as progress:
         while step < cfg.max_steps:
             for batch in dataloader:
-
                 if step >= cfg.max_steps:
                     break
 
@@ -177,7 +186,12 @@ def finetune(cfg : FinetuneConfig):
                 action_logits = output.logits[:, vla.vision_backbone.featurizer.patch_embed.num_patches : -1]
                 action_preds = action_logits.argmax(dim=2)
                 action_gt = batch["labels"][:, 1:].to(action_preds.device)
+                print(f"Action Preds: {action_preds}")
+                print(f"Action GT: {action_gt}")
+                print(f"{batch['labels'][:, 1:].shape}")
                 mask = action_gt > action_tokenizer.action_token_begin_idx
+                print(f"Mask: {mask[-256:]}")
+                print(mask.shape)
 
                 # Compute Accuracy
                 correct_preds = (action_preds == action_gt) & mask
@@ -196,8 +210,12 @@ def finetune(cfg : FinetuneConfig):
 
                 # Log metrics to W&B
                 wandb.log(
-                    {"train_loss": loss.item(), "action_accuracy": action_accuracy.item(), "l1_loss": action_l1_loss.item()},
-                    step=step
+                    {
+                        "train_loss": loss.item(),
+                        "action_accuracy": action_accuracy.item(),
+                        "l1_loss": action_l1_loss.item(),
+                    },
+                    step=step,
                 )
 
                 # Save Model Checkpoint
@@ -206,7 +224,6 @@ def finetune(cfg : FinetuneConfig):
                     step_dir = str(run_dir / f"step-{step}")
                     finetuned_save_dir = str(adapter_dir / f"step-{step}")
 
-
                     # Save Processor & Weights
                     processor.save_pretrained(step_dir)
                     vla.save_pretrained(finetuned_save_dir)
@@ -214,12 +231,15 @@ def finetune(cfg : FinetuneConfig):
                     # Merge LoRA weights into model backbone for faster inference
                     if cfg.use_lora:
                         base_vla = AutoModelForVision2Seq.from_pretrained(
-                            cfg.vla_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True
+                            cfg.vla_path,
+                            torch_dtype=torch.bfloat16,
+                            low_cpu_mem_usage=True,
+                            trust_remote_code=True,
                         )
                         merged_vla = PeftModel.from_pretrained(base_vla, finetuned_save_dir)
                         merged_vla = merged_vla.merge_and_unload()
                         merged_vla.save_pretrained(step_dir)
-                
+
 
 if __name__ == "__main__":
     cfg = FinetuneConfig()
