@@ -186,12 +186,7 @@ def finetune(cfg: FinetuneConfig):
                 action_logits = output.logits[:, vla.vision_backbone.featurizer.patch_embed.num_patches : -1]
                 action_preds = action_logits.argmax(dim=2)
                 action_gt = batch["labels"][:, 1:].to(action_preds.device)
-                print(f"Action Preds: {action_preds}")
-                print(f"Action GT: {action_gt}")
-                print(f"{batch['labels'][:, 1:].shape}")
                 mask = action_gt > action_tokenizer.action_token_begin_idx
-                print(f"Mask: {mask[-256:]}")
-                print(mask.shape)
 
                 # Compute Accuracy
                 correct_preds = (action_preds == action_gt) & mask
