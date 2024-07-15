@@ -61,6 +61,8 @@ moviepy = ">=1.0.3"
 rerun-sdk = ">=0.15.1"
 deepdiff = ">=7.0.1"
 scikit-image = {version = "^0.23.2", optional = true}
+peft = "^0.11.1"
+timm = "0.9.16"
 
 
 [tool.poetry.extras]

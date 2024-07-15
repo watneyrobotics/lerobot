@@ -1,19 +1,20 @@
 import json
-import torch
 import os
+
 import numpy as np
+import torch
 from tqdm import tqdm
 
 
 def get_dataset_statistics(dataset, save_dir):
     if os.path.exists(save_dir):
         print(f"Loading dataset statistics from {save_dir}")
-        with open(save_dir, "r") as f:
+        with open(save_dir) as f:
             return json.load(f)
-    print(f"Got stats : {dataset.stats}")
+
     cardinality = len(dataset)
     print(f"Computing dataset statistics for {cardinality} trajectories.")
-    
+
     print("Computing dataset statistics. This may take a bit, but should only need to happen once.")
     actions, proprios, num_transitions, num_trajectories = [], [], 0, 0
     action_zeros = torch.zeros_like(dataset.hf_dataset[0]["action"])
@@ -30,7 +31,6 @@ def get_dataset_statistics(dataset, save_dir):
 
     actions_max, _ = actions.max(dim=0)
     actions_min, _ = actions.min(dim=0)
-
 
     metadata = {
         "action": {
