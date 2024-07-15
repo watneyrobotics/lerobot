@@ -5,8 +5,8 @@ on the Insertion task, using HuggingFace accelerate.
 Make sure you have installed accelerate before running this script: `pip install accelerate`.
 
 To launch it, you will have to use the accelerate launcher, for example:
-`accelerate launch 7_train_distributed_policy.py`. This will launch the script with default distributed parameters.
-To launch on two GPUs, you can use `accelerate launch  --num_processes 2 7_train_distributed_policy.py`.
+`accelerate launch lerobot/examples/7_train_distributed_policy.py`. This will launch the script with default distributed parameters.
+To launch on two GPUs, you can use `accelerate launch  --num_processes 2 lerobot/examples/7_train_distributed_policy.py`.
 
 Find detailed information in the documentation: `https://github.com/huggingface/accelerate`.
 """
@@ -31,7 +31,6 @@ log_freq = 250
 # The chunk size is the number of actions that the policy will predict.
 chunk_size = 100
 
-# Here we define which 
 delta_timestamps = {"action": 
                     # Load the current action, the next 100 actions to be executed, because we the policy
                     # trains to predict the next 100 actions.
