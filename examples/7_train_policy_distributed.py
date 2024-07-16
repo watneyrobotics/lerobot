@@ -5,8 +5,8 @@ on the Insertion task, using HuggingFace accelerate.
 Make sure you have installed accelerate before running this script: `pip install accelerate`.
 
 To launch it, you will have to use the accelerate launcher, for example:
-`accelerate launch lerobot/examples/7_train_distributed_policy.py`. This will launch the script with default distributed parameters.
-To launch on two GPUs, you can use `accelerate launch  --num_processes 2 lerobot/examples/7_train_distributed_policy.py`.
+`accelerate launch examples/7_train_policy_distributed.py`. This will launch the script with default distributed parameters.
+To launch on two GPUs, you can use `accelerate launch  --num_processes 2 lerobot/examples/7_train_policy_distributed.py`.
 
 Find detailed information in the documentation: `https://github.com/huggingface/accelerate`.
 """
@@ -88,6 +88,6 @@ def train():
     accelerator.print("Finished offline training")
     accelerator.end_training()
 
-# We need to create a function call to use the Accelerator.
+# We need to add a call to the training function in order to be able to use the Accelerator.
 if __name__ == "__main__":
     train()
