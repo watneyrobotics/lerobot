@@ -17,13 +17,12 @@ import logging
 import os
 from pathlib import Path
 from typing import Callable
-from PIL import Image
-
-from torchvision.transforms import ToPILImage
 
 import datasets
 import torch
 import torch.utils
+from PIL import Image
+from torchvision.transforms import ToPILImage
 
 from lerobot.common.datasets.compute_stats import aggregate_stats
 from lerobot.common.datasets.utils import (
@@ -38,11 +37,11 @@ from lerobot.common.datasets.utils import (
 )
 from lerobot.common.datasets.video_utils import VideoFrame, load_from_videos
 
-
 DATA_DIR = Path(os.environ["DATA_DIR"]) if "DATA_DIR" in os.environ else None
 CODEBASE_VERSION = "v1.4"
 
 to_pil = ToPILImage()
+
 
 def tensor_to_image(tensor: torch.Tensor) -> Image:
     """Converts a torch tensor to a PIL image."""
@@ -82,7 +81,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.info = load_info(repo_id, version, root)
         if self.video:
             self.videos_dir = load_videos(repo_id, version, root)
-        
+
         self.prompt_builder_fn = prompt_builder_fn
         self.action_tokenizer = action_tokenizer
         self.processor = processor
@@ -148,7 +147,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return self.num_samples
-    
 
     def __getitem__(self, idx):
         item = self.hf_dataset[idx]
@@ -172,11 +170,11 @@ class LeRobotDataset(torch.utils.data.Dataset):
 
         if self.image_transforms is not None:
             for cam in self.camera_keys:
-                item[cam]=self.image_transforms(item[cam])
+                item[cam] = self.image_transforms(item[cam])
 
-        dataset_name, action = "aloha_sim_transfer_cube", item["action"]
-        img = tensor_to_image(item["observation.images.top"])
-        lang = "pick the red cube with the right arm and transfer it to the left arm."
+        dataset_name, action = "aloha_static_tape", item["action"]
+        img = tensor_to_image(item["observation.images.cam_high"])
+        lang = "take a piece of tape"
 
         # Construct Chat-based Prompt
         prompt_builder = self.prompt_builder_fn("openvla")

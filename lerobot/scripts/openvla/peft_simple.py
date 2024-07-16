@@ -61,23 +61,20 @@ class FinetuneConfig:
     vla_path: str = "openvla/openvla-7b"  # Path to OpenVLA model (on HuggingFace Hub)
 
     # Directory Paths
-    dataset_repo_id = "lerobot/aloha_sim_transfer_cube_human"
-    chunk_size = 100
+    dataset_repo_id = "lerobot/aloha_static_tape"
     wandb: bool = True  # Whether to log to W&B
-    fps = 50
-    job_name: str = "finetune-openvla-lr-5e4"  # Name of W&B job
+    job_name: str = "finetune-openvla-aloha-static-tape"  # Name of W&B job
     delta_timestamps = None  # Delta timestamps for action prediction
-    run_root_dir: Path = Path("normalized/runs")  # Path to directory to store logs & checkpoints
+    run_root_dir: Path = Path("static_tape/runs")  # Path to directory to store logs & checkpoints
     adapter_tmp_dir: Path = Path(
-        "normalized/adapter-tmp"
+        "static_tape/adapter-tmp"
     )  # Temporary directory for LoRA weights before fusing
 
     # Fine-tuning Parameters
     batch_size: int = 16  # Fine-tuning batch size
-    max_steps: int = 10000  # Max number of fine-tuning steps
-    save_steps: int = 2000  # Interval for checkpoint saving
-    learning_rate: float = 5e-4  # Fine-tuning learning rate
-    grad_accumulation_steps: int = 1  # Gradient accumulation steps
+    max_steps: int = 100000  # Max number of fine-tuning steps
+    save_steps: int = 5000  # Interval for checkpoint saving
+    learning_rate: float = 2e-5  # Fine-tuning learning rate
     image_aug: bool = True  # Whether to use image augmentation
 
     # LoRA Arguments
@@ -107,6 +104,7 @@ def finetune(cfg: FinetuneConfig):
         processor=processor,
         prompt_builder_fn=prompt_builder_fn,
     )
+    print(f"Dataset with keys: {dataset.hf_dataset.column_names}")
 
     dataset_stats_dict = get_dataset_statistics(dataset, os.path.join(run_dir, "dataset_statistics.json"))
 

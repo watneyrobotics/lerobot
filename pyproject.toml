@@ -63,6 +63,7 @@ deepdiff = ">=7.0.1"
 scikit-image = {version = "^0.23.2", optional = true}
 peft = "^0.11.1"
 timm = "0.9.16"
+transformers = "^4.42.4"
 
 
 [tool.poetry.extras]

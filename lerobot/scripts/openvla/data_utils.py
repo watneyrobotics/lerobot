@@ -1,58 +1,104 @@
 import json
 import os
+from copy import deepcopy
+from math import ceil
 
+import einops
 import numpy as np
 import torch
-from tqdm import tqdm
+import tqdm
 
 
-def get_dataset_statistics(dataset, save_dir):
+def get_dataset_statistics(dataset, save_dir, batch_size=32, num_workers=16, max_num_samples=None):
+    """Compute mean/std and min/max statistics of action key in a dataset, and zeroed stats for proprio."""
     if os.path.exists(save_dir):
         print(f"Loading dataset statistics from {save_dir}")
         with open(save_dir) as f:
             return json.load(f)
 
-    cardinality = len(dataset)
-    print(f"Computing dataset statistics for {cardinality} trajectories.")
+    if max_num_samples is None:
+        max_num_samples = len(dataset)
 
-    print("Computing dataset statistics. This may take a bit, but should only need to happen once.")
-    actions, proprios, num_transitions, num_trajectories = [], [], 0, 0
-    action_zeros = torch.zeros_like(dataset.hf_dataset[0]["action"])
-    for idx in tqdm(range(cardinality)):
-        traj = dataset[idx]
-        actions.append(traj["action"])
-        proprios.append(action_zeros)
-        num_transitions += 1
-        if traj["next.done"]:
-            num_trajectories += 1
+    # Only computing stats for 'action'
+    stats_patterns = {"action": "b c -> c"}
 
-    actions, proprios = torch.stack(actions, dim=0), torch.stack(proprios, dim=0)
-    print(actions.shape, proprios.shape)
+    # Initialize mean, std, max, and min for 'action'
+    mean, std, max, min = {}, {}, {}, {}
+    for key in stats_patterns:
+        mean[key] = torch.tensor(0.0).float()
+        std[key] = torch.tensor(0.0).float()
+        max[key] = torch.tensor(-float("inf")).float()
+        min[key] = torch.tensor(float("inf")).float()
 
-    actions_max, _ = actions.max(dim=0)
-    actions_min, _ = actions.min(dim=0)
+    def create_seeded_dataloader(dataset, batch_size, seed):
+        generator = torch.Generator()
+        generator.manual_seed(seed)
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            num_workers=num_workers,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=False,
+            generator=generator,
+        )
+        return dataloader
 
-    metadata = {
+    first_batch = None
+    running_item_count = 0  # for online mean computation
+    dataloader = create_seeded_dataloader(dataset, batch_size, seed=1337)
+    num_transitions, num_trajectories = 0, 0
+
+    for i, batch in enumerate(
+        tqdm.tqdm(
+            dataloader, total=ceil(max_num_samples / batch_size), desc="Compute mean, min, max, q01, q99"
+        )
+    ):
+        this_batch_size = len(batch["action"])
+        running_item_count += this_batch_size
+        if first_batch is None:
+            first_batch = deepcopy(batch)
+
+        for key, pattern in stats_patterns.items():
+            batch[key] = batch[key].float()
+            # Numerically stable update step for mean computation.
+            batch_mean = einops.reduce(batch[key], pattern, "mean")
+            mean[key] = mean[key] + this_batch_size * (batch_mean - mean[key]) / running_item_count
+            max[key] = torch.maximum(max[key], einops.reduce(batch[key], pattern, "max"))
+            min[key] = torch.minimum(min[key], einops.reduce(batch[key], pattern, "min"))
+
+        num_transitions += this_batch_size
+        if "next.done" in batch and batch["next.done"].sum() > 0:
+            num_trajectories += batch["next.done"].sum().item()
+
+        if i == ceil(max_num_samples / batch_size) - 1:
+            break
+
+    # Create zeroed stats for 'proprio' based on the shape of 'action' stats
+    action_shape = mean["action"].shape
+    zero_stats = {
+        "mean": torch.zeros(action_shape).tolist(),
+        "max": torch.zeros(action_shape).tolist(),
+        "min": torch.zeros(action_shape).tolist(),
+        "q01": torch.zeros(action_shape).tolist(),
+        "q99": torch.zeros(action_shape).tolist(),
+    }
+
+    # Converting tensors to lists for JSON serialization
+    stats = {
         "action": {
-            "mean": actions.mean(0).tolist(),
-            "std": actions.std().tolist(),
-            "max": actions_max.tolist(),
-            "min": actions_min.tolist(),
-            "q01": np.quantile(actions, 0.01, axis=0).tolist(),
-            "q99": np.quantile(actions, 0.99, axis=0).tolist(),
+            "mean": mean["action"].tolist(),
+            "max": max["action"].tolist(),
+            "min": min["action"].tolist(),
+            "q01": np.quantile(mean["action"], 0.01).tolist(),
+            "q99": np.quantile(mean["action"], 0.99).tolist(),
         },
-        "proprio": {
-            "mean": action_zeros.tolist(),
-            "std": action_zeros.tolist(),
-            "min": action_zeros.tolist(),
-            "q01": np.quantile(proprios, 0.01, axis=0).tolist(),
-            "q99": np.quantile(proprios, 0.99, axis=0).tolist(),
-        },
+        "proprio": zero_stats,
         "num_transitions": num_transitions,
         "num_trajectories": num_trajectories,
     }
 
+    # Save the computed statistics to a file
     with open(save_dir, "w") as f:
-        json.dump(metadata, f)
+        json.dump(stats, f)
 
-    return metadata
+    return stats
