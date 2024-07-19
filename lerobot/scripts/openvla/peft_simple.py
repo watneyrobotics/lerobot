@@ -31,9 +31,8 @@ def normalize(metadata, dataset):
     for key, traj_key in keys_to_normalize.items():
         low[traj_key] = torch.tensor(metadata[key]["q01"], dtype=torch.float32)
         high[traj_key] = torch.tensor(metadata[key]["q99"], dtype=torch.float32)
-        mini = torch.tensor(metadata[key]["min"], dtype=torch.float32)
         mask[traj_key] = torch.tensor(
-            metadata[key].get("mask", torch.ones_like(mini, dtype=torch.bool)), dtype=torch.bool
+            metadata[key].get("mask", torch.ones_like(high[traj_key], dtype=torch.bool)), dtype=torch.bool
         )
         zeros_mask[traj_key] = torch.tensor(metadata[key]["min"] == metadata[key]["max"], dtype=torch.bool)
 
@@ -104,7 +103,6 @@ def finetune(cfg: FinetuneConfig):
         processor=processor,
         prompt_builder_fn=prompt_builder_fn,
     )
-    print(f"Dataset with keys: {dataset.hf_dataset.column_names}")
 
     dataset_stats_dict = get_dataset_statistics(dataset, os.path.join(run_dir, "dataset_statistics.json"))
 
@@ -119,9 +117,9 @@ def finetune(cfg: FinetuneConfig):
         low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
+    vla.norm_stats["aloha"] = dataset_stats_dict
 
     vla = vla.to(device)
-    vla.norm_stats["aloha"] = dataset_stats_dict
 
     if cfg.use_lora:
         lora_config = LoraConfig(
