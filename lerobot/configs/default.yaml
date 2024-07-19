@@ -38,8 +38,7 @@ training:
   # `online_env_seed` is used for environments for online training data rollouts.
   online_env_seed: ???
   eval_freq: ???
-  save_freq: ???
-  log_freq: 250
+  log_freq: 200
   save_checkpoint: true
   num_workers: 4
   batch_size: ???

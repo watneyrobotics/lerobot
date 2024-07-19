@@ -153,7 +153,9 @@ def rollout(
 
         if dataset_index is not None:
             # observation["observation.state"].shape[0] is the batch size.
-            observation["dataset_index"] = torch.full((observation["observation.state"].shape[0],), fill_value=dataset_index, dtype=torch.long)
+            observation["dataset_index"] = torch.full(
+                (observation["observation.state"].shape[0],), fill_value=dataset_index, dtype=torch.long
+            )
 
         observation = {key: observation[key].to(device, non_blocking=True) for key in observation}
 
@@ -547,8 +549,10 @@ def main(
         out_dir = f"outputs/eval/{dt.now().strftime('%Y-%m-%d/%H-%M-%S')}_{hydra_cfg.env.name}_{hydra_cfg.policy.name}"
 
     if not isinstance(hydra_cfg.dataset_repo_id, str):
-        dataset_index=int(dataset_index)
-        logging.info(f"Detected multiple datasets. Evaluation will be done on the dataset : {dataset_index}, which is {hydra_cfg.dataset_repo_id[dataset_index]}.")
+        dataset_index = int(dataset_index)
+        logging.info(
+            f"Detected multiple datasets. Evaluation will be done on the dataset : {dataset_index}, which is {hydra_cfg.dataset_repo_id[dataset_index]}."
+        )
         if dataset_index is None:
             logging.info("No dataset_index parameter detected for evaluation. Defaulting to 0.")
             dataset_index = 0
@@ -598,6 +602,29 @@ def main(
     logging.info("End of eval")
 
 
+def get_pretrained_policy_path(pretrained_policy_name_or_path, revision=None):
+    try:
+        pretrained_policy_path = Path(snapshot_download(pretrained_policy_name_or_path, revision=revision))
+    except (HFValidationError, RepositoryNotFoundError) as e:
+        if isinstance(e, HFValidationError):
+            error_message = (
+                "The provided pretrained_policy_name_or_path is not a valid Hugging Face Hub repo ID."
+            )
+        else:
+            error_message = (
+                "The provided pretrained_policy_name_or_path was not found on the Hugging Face Hub."
+            )
+
+        logging.warning(f"{error_message} Treating it as a local directory.")
+        pretrained_policy_path = Path(pretrained_policy_name_or_path)
+    if not pretrained_policy_path.is_dir() or not pretrained_policy_path.exists():
+        raise ValueError(
+            "The provided pretrained_policy_name_or_path is not a valid/existing Hugging Face Hub "
+            "repo ID, nor is it an existing local directory."
+        )
+    return pretrained_policy_path
+
+
 if __name__ == "__main__":
     init_logging()
 
@@ -637,34 +664,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "-d",
         "--dataset-index",
-
     )
     args = parser.parse_args()
 
     if args.pretrained_policy_name_or_path is None:
         main(hydra_cfg_path=args.config, out_dir=args.out_dir, config_overrides=args.overrides)
     else:
-        try:
-            pretrained_policy_path = Path(
-                snapshot_download(args.pretrained_policy_name_or_path, revision=args.revision)
-            )
-        except (HFValidationError, RepositoryNotFoundError) as e:
-            if isinstance(e, HFValidationError):
-                error_message = (
-                    "The provided pretrained_policy_name_or_path is not a valid Hugging Face Hub repo ID."
-                )
-            else:
-                error_message = (
-                    "The provided pretrained_policy_name_or_path was not found on the Hugging Face Hub."
-                )
-
-            logging.warning(f"{error_message} Treating it as a local directory.")
-            pretrained_policy_path = Path(args.pretrained_policy_name_or_path)
-        if not pretrained_policy_path.is_dir() or not pretrained_policy_path.exists():
-            raise ValueError(
-                "The provided pretrained_policy_name_or_path is not a valid/existing Hugging Face Hub "
-                "repo ID, nor is it an existing local directory."
-            )
+        pretrained_policy_path = get_pretrained_policy_path(
+            args.pretrained_policy_name_or_path, revision=args.revision
+        )
 
         main(
             pretrained_policy_path=pretrained_policy_path,

@@ -226,7 +226,6 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         repo_ids: list[str],
-        version: str | None = CODEBASE_VERSION,
         root: Path | None = DATA_DIR,
         split: str = "train",
         image_transforms: Callable | None = None,
@@ -391,7 +390,6 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
         return (
             f"{self.__class__.__name__}(\n"
             f"  Repository IDs: '{self.repo_ids}',\n"
-            f"  Version: '{self.version}',\n"
             f"  Split: '{self.split}',\n"
             f"  Number of Samples: {self.num_samples},\n"
             f"  Number of Episodes: {self.num_episodes},\n"
