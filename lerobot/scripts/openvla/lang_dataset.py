@@ -12,6 +12,9 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 DATA_DIR = Path(os.environ["DATA_DIR"]) if "DATA_DIR" in os.environ else None
 CODEBASE_VERSION = "v1.4"
 
+instruction = "take a piece of tape"
+main_camera_key = "cam_high"
+
 
 def tensor_to_image(tensor: torch.Tensor) -> Image:
     """Converts a torch tensor to a PIL image."""
@@ -41,8 +44,8 @@ class LanguageLeRobotDataset(LeRobotDataset):
         item = super().__getitem__(idx)
 
         action = item["action"]
-        img = tensor_to_image(item["observation.images.cam_high"])
-        lang = "take a piece of tape"
+        img = tensor_to_image(item[f"observation.images.{main_camera_key}"])
+        lang = instruction
 
         # Construct Chat-based Prompt
         prompt_builder = self.prompt_builder_fn("openvla")

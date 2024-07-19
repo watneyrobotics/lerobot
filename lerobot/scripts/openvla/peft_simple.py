@@ -6,7 +6,8 @@ import tqdm
 from action_tokenizer import ActionTokenizer
 from base_prompt import PurePromptBuilder
 from collator import PaddedCollatorForActionPrediction
-from data_utils import get_dataset_statistics
+from data_utils import get_dataset_statistics, normalize
+from lang_dataset import LanguageLeRobotDataset
 from peft import LoraConfig, PeftModel, get_peft_model
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
@@ -14,46 +15,6 @@ from transformers import AutoModelForVision2Seq, AutoProcessor
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 import wandb
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-
-
-def normalize(metadata, dataset):
-    keys_to_normalize = {
-        "action": "action",
-    }
-
-    # Convert metadata to tensors
-    low = {}
-    high = {}
-    mask = {}
-    zeros_mask = {}
-
-    for key, traj_key in keys_to_normalize.items():
-        low[traj_key] = torch.tensor(metadata[key]["q01"], dtype=torch.float32)
-        high[traj_key] = torch.tensor(metadata[key]["q99"], dtype=torch.float32)
-        mask[traj_key] = torch.tensor(
-            metadata[key].get("mask", torch.ones_like(high[traj_key], dtype=torch.bool)), dtype=torch.bool
-        )
-        zeros_mask[traj_key] = torch.tensor(metadata[key]["min"] == metadata[key]["max"], dtype=torch.bool)
-
-    def normalize_sample(sample):
-        for _, traj_key in keys_to_normalize.items():
-            sample[traj_key] = torch.where(
-                mask[traj_key],
-                torch.clamp(
-                    2 * (sample[traj_key] - low[traj_key]) / (high[traj_key] - low[traj_key] + 1e-8) - 1,
-                    -1,
-                    1,
-                ),
-                sample[traj_key],
-            )
-            sample[traj_key] = torch.where(
-                zeros_mask[traj_key], torch.tensor(0.0, dtype=sample[traj_key].dtype), sample[traj_key]
-            )
-        return sample
-
-    dataset.hf_dataset = dataset.hf_dataset.map(normalize_sample, num_proc=4)
-    return dataset
 
 
 class FinetuneConfig:
@@ -74,7 +35,6 @@ class FinetuneConfig:
     max_steps: int = 100000  # Max number of fine-tuning steps
     save_steps: int = 5000  # Interval for checkpoint saving
     learning_rate: float = 2e-5  # Fine-tuning learning rate
-    image_aug: bool = True  # Whether to use image augmentation
 
     # LoRA Arguments
     use_lora: bool = True  # Whether to use LoRA fine-tuning
@@ -96,7 +56,7 @@ def finetune(cfg: FinetuneConfig):
     os.makedirs(run_dir, exist_ok=True)
     print(f"Creating run directory at {run_dir}")
 
-    dataset = LeRobotDataset(
+    dataset = LanguageLeRobotDataset(
         cfg.dataset_repo_id,
         delta_timestamps=cfg.delta_timestamps,
         action_tokenizer=action_tokenizer,
@@ -199,15 +159,16 @@ def finetune(cfg: FinetuneConfig):
 
                 step += 1
 
-                # Log metrics to W&B
-                wandb.log(
-                    {
-                        "train_loss": loss.item(),
-                        "action_accuracy": action_accuracy.item(),
-                        "l1_loss": action_l1_loss.item(),
-                    },
-                    step=step,
-                )
+                if cfg.wandb:
+                    # Log metrics to W&B
+                    wandb.log(
+                        {
+                            "train_loss": loss.item(),
+                            "action_accuracy": action_accuracy.item(),
+                            "l1_loss": action_l1_loss.item(),
+                        },
+                        step=step,
+                    )
 
                 # Save Model Checkpoint
                 if step % cfg.save_steps == 0:
