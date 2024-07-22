@@ -44,6 +44,7 @@ from lerobot.common.utils.utils import (
     set_global_seed,
 )
 from lerobot.scripts.eval import eval_policy
+from lerobot.scripts.finetune import make_finetuned_policy
 
 
 def make_optimizer_and_scheduler(cfg, policy):
@@ -226,7 +227,7 @@ def log_eval_info(logger, info, step, cfg, dataset, is_offline):
     logger.log_dict(info, step, mode="eval")
 
 
-def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = None):
+def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = None, finetune_cfg : dict = None):
     if out_dir is None:
         raise NotImplementedError()
     if job_name is None:
@@ -291,6 +292,10 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
     torch.backends.cuda.matmul.allow_tf32 = True
 
     logging.info("make_dataset")
+    if finetune_cfg:
+        cfg.dataset_repo_id = finetune_cfg["new_dataset_repo_id"]
+        if finetune_cfg.get("image_transforms"):
+            cfg.training.image_transforms = finetune_cfg["image_transforms"]
     offline_dataset = make_dataset(cfg)
     if isinstance(offline_dataset, MultiLeRobotDataset):
         logging.info(
@@ -307,11 +312,18 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
         eval_env = make_env(cfg)
 
     logging.info("make_policy")
-    policy = make_policy(
-        hydra_cfg=cfg,
-        dataset_stats=offline_dataset.stats if not cfg.resume else None,
-        pretrained_policy_name_or_path=str(logger.last_pretrained_model_dir) if cfg.resume else None,
-    )
+    if finetune_cfg:
+        policy = make_finetuned_policy(
+            hydra_cfg=cfg,
+            finetune_cfg=finetune_cfg,
+            dataset_stats=offline_dataset.stats if not cfg.resume else None,
+        )
+    else:
+        policy = make_policy(
+            hydra_cfg=cfg,
+            dataset_stats=offline_dataset.stats if not cfg.resume else None,
+            pretrained_policy_name_or_path=str(logger.last_pretrained_model_dir) if cfg.resume else None,
+        )
     assert isinstance(policy, nn.Module)
     # Create optimizer and scheduler
     # Temporary hack to move optimizer out of policy
