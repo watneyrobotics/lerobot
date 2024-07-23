@@ -44,8 +44,8 @@ def get_dataset_statistics(dataset, save_dir, batch_size=32, num_workers=16, max
         return dataloader
 
     first_batch = None
-    running_item_count = 0  # for online mean computation
-    dataloader = create_seeded_dataloader(dataset, batch_size, seed=1337)
+    running_item_count = 0
+    dataloader = create_seeded_dataloader(dataset, batch_size, seed=84)
     num_transitions, num_trajectories = 0, 0
 
     for i, batch in enumerate(
@@ -104,40 +104,20 @@ def get_dataset_statistics(dataset, save_dir, batch_size=32, num_workers=16, max
     return stats
 
 
-def normalize(metadata, dataset):
-    keys_to_normalize = {
-        "action": "action",
-    }
+def compute_q01_q99(dataset):
+    t = dataset.hf_dataset["action"]
 
-    # Convert metadata to tensors
-    low = {}
-    high = {}
-    mask = {}
-    zeros_mask = {}
+    q01_per_dimension = np.zeros(t.shape[1])
+    q99_per_dimension = np.zeros(t.shape[1])
 
-    for key, traj_key in keys_to_normalize.items():
-        low[traj_key] = torch.tensor(metadata[key]["q01"], dtype=torch.float32)
-        high[traj_key] = torch.tensor(metadata[key]["q99"], dtype=torch.float32)
-        mask[traj_key] = torch.tensor(
-            metadata[key].get("mask", torch.ones_like(high[traj_key], dtype=torch.bool)), dtype=torch.bool
-        )
-        zeros_mask[traj_key] = torch.tensor(metadata[key]["min"] == metadata[key]["max"], dtype=torch.bool)
+    for col_idx in range(t.shape[1]):
+        current_col = t[:, col_idx].copy()
+        current_col.sort()
 
-    def normalize_sample(sample):
-        for _, traj_key in keys_to_normalize.items():
-            sample[traj_key] = torch.where(
-                mask[traj_key],
-                torch.clamp(
-                    2 * (sample[traj_key] - low[traj_key]) / (high[traj_key] - low[traj_key] + 1e-8) - 1,
-                    -1,
-                    1,
-                ),
-                sample[traj_key],
-            )
-            sample[traj_key] = torch.where(
-                zeros_mask[traj_key], torch.tensor(0.0, dtype=sample[traj_key].dtype), sample[traj_key]
-            )
-        return sample
+        q01_per_dimension[col_idx] = np.quantile(t[:, col_idx], 0.01)
+        q99_per_dimension[col_idx] = np.quantile(t[:, col_idx], 0.99)
 
-    dataset.hf_dataset = dataset.hf_dataset.map(normalize_sample, num_proc=4)
+    dataset.stats["action"]["q01"] = q01_per_dimension
+    dataset.stats["action"]["q99"] = q99_per_dimension
+
     return dataset
