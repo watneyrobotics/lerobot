@@ -6,7 +6,7 @@ import tqdm
 from action_tokenizer import ActionTokenizer
 from base_prompt import PurePromptBuilder
 from collator import PaddedCollatorForActionPrediction
-from data_utils import compute_q01_q99
+from data_utils import compute_action_q01_q99
 from lang_dataset import LanguageLeRobotDataset
 from peft import LoraConfig, PeftModel, get_peft_model
 from torch.optim import AdamW
@@ -29,8 +29,8 @@ def normalize(metadata, dataset):
     zeros_mask = {}
 
     for key, traj_key in keys_to_normalize.items():
-        low[traj_key] = torch.tensor(metadata[key]["q01"], dtype=torch.float32)
-        high[traj_key] = torch.tensor(metadata[key]["q99"], dtype=torch.float32)
+        low[traj_key] = metadata[key]["q01"]
+        high[traj_key] = metadata[key]["q99"]
         mask[traj_key] = torch.tensor(
             metadata[key].get("mask", torch.ones_like(high[traj_key], dtype=torch.bool)), dtype=torch.bool
         )
@@ -61,13 +61,15 @@ class FinetuneConfig:
     vla_path: str = "openvla/openvla-7b"  # Path to OpenVLA model (on HuggingFace Hub)
 
     # Directory Paths
-    dataset_repo_id = "lerobot/aloha_static_tape"
+    dataset_repo_id = "lerobot/aloha_sim_transfer_cube_human_image"
     wandb: bool = True  # Whether to log to W&B
-    job_name: str = "finetune-openvla-aloha-static-tape"  # Name of W&B job
+    job_name: str = "finetune-openvla-transfer-cube"  # Name of W&B job
     delta_timestamps = None  # Delta timestamps for action prediction
-    run_root_dir: Path = Path("static_tape/runs")  # Path to directory to store logs & checkpoints
+    run_root_dir: Path = Path(
+        "/fsx/marina_barannikov/outputs/openvla/transfer_cube/runs"
+    )  # Path to directory to store logs & checkpoints
     adapter_tmp_dir: Path = Path(
-        "static_tape/adapter-tmp"
+        "/fsx/marina_barannikov/outputs/openvla/transfer_cube/adapter-tmp"
     )  # Temporary directory for LoRA weights before fusing
 
     # Fine-tuning Parameters
@@ -104,7 +106,7 @@ def finetune(cfg: FinetuneConfig):
         prompt_builder_fn=prompt_builder_fn,
     )
 
-    compute_q01_q99(dataset)
+    dataset = compute_action_q01_q99(dataset)
 
     dataset = normalize(dataset.stats, dataset)
 
@@ -117,7 +119,7 @@ def finetune(cfg: FinetuneConfig):
         low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
-    vla.norm_stats["aloha"] = dataset.stats
+    vla.norm_stats["aloha_sim"] = dataset.stats
 
     vla = vla.to(device)
 
