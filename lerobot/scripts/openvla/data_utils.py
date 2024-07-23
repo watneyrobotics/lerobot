@@ -44,8 +44,7 @@ def get_dataset_statistics(dataset, save_dir, batch_size=32, num_workers=16, max
         return dataloader
 
     first_batch = None
-    running_item_count = 0  # for online mean computation
-    dataloader = create_seeded_dataloader(dataset, batch_size, seed=1337)
+    dataloader = create_seeded_dataloader(dataset, batch_size, seed=84)
     num_transitions, num_trajectories = 0, 0
 
     for i, batch in enumerate(
@@ -102,3 +101,22 @@ def get_dataset_statistics(dataset, save_dir, batch_size=32, num_workers=16, max
         json.dump(stats, f)
 
     return stats
+
+
+def compute_q01_q99(dataset):
+    t = dataset.hf_dataset["action"]
+    
+    q01_per_dimension = np.zeros(t.shape[1])
+    q99_per_dimension = np.zeros(t.shape[1])
+
+    for col_idx in range(t.shape[1]):
+        current_col = t[:, col_idx].copy()
+        current_col.sort()
+
+        q01_per_dimension[col_idx] = np.quantile(t[:, col_idx], 0.01)
+        q99_per_dimension[col_idx] = np.quantile(t[:, col_idx], 0.99)
+
+    dataset.stats["action"]["q01"] = q01_per_dimension
+    dataset.stats["action"]["q99"] = q99_per_dimension
+
+    return dataset

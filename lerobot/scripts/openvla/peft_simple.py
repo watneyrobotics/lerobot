@@ -6,7 +6,7 @@ import tqdm
 from action_tokenizer import ActionTokenizer
 from base_prompt import PurePromptBuilder
 from collator import PaddedCollatorForActionPrediction
-from data_utils import get_dataset_statistics
+from data_utils import get_dataset_statistics, compute_q01_q99
 from peft import LoraConfig, PeftModel, get_peft_model
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
@@ -53,6 +53,7 @@ def normalize(metadata, dataset):
         return sample
 
     dataset.hf_dataset = dataset.hf_dataset.map(normalize_sample, num_proc=4)
+    
     return dataset
 
 
@@ -74,7 +75,6 @@ class FinetuneConfig:
     max_steps: int = 100000  # Max number of fine-tuning steps
     save_steps: int = 5000  # Interval for checkpoint saving
     learning_rate: float = 2e-5  # Fine-tuning learning rate
-    image_aug: bool = True  # Whether to use image augmentation
 
     # LoRA Arguments
     use_lora: bool = True  # Whether to use LoRA fine-tuning
@@ -96,7 +96,7 @@ def finetune(cfg: FinetuneConfig):
     os.makedirs(run_dir, exist_ok=True)
     print(f"Creating run directory at {run_dir}")
 
-    dataset = LeRobotDataset(
+    dataset = LanguageLeRobotDataset(
         cfg.dataset_repo_id,
         delta_timestamps=cfg.delta_timestamps,
         action_tokenizer=action_tokenizer,
@@ -104,9 +104,9 @@ def finetune(cfg: FinetuneConfig):
         prompt_builder_fn=prompt_builder_fn,
     )
 
-    dataset_stats_dict = get_dataset_statistics(dataset, os.path.join(run_dir, "dataset_statistics.json"))
+    compute_q01_q99(dataset)
 
-    dataset = normalize(dataset_stats_dict, dataset)
+    dataset = normalize(dataset.stats, dataset)
 
     quantization_config = None
 
