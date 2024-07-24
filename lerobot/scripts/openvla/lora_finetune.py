@@ -29,8 +29,8 @@ def normalize(metadata, dataset):
     zeros_mask = {}
 
     for key, traj_key in keys_to_normalize.items():
-        low[traj_key] = metadata[key]["q01"]
-        high[traj_key] = metadata[key]["q99"]
+        low[traj_key] = torch.tensor(metadata[key]["q01"])
+        high[traj_key] = torch.tensor(metadata[key]["q99"])
         mask[traj_key] = torch.tensor(
             metadata[key].get("mask", torch.ones_like(high[traj_key], dtype=torch.bool)), dtype=torch.bool
         )
@@ -52,7 +52,7 @@ def normalize(metadata, dataset):
             )
         return sample
 
-    dataset.hf_dataset = dataset.hf_dataset.map(normalize_sample, num_proc=4)
+    dataset.hf_dataset = dataset.hf_dataset.map(normalize_sample, num_proc=1, writer_batch_size=32)
 
     return dataset
 
@@ -106,7 +106,7 @@ def finetune(cfg: FinetuneConfig):
         prompt_builder_fn=prompt_builder_fn,
     )
 
-    dataset = compute_action_q01_q99(dataset)
+    compute_action_q01_q99(dataset)
 
     dataset = normalize(dataset.stats, dataset)
 
