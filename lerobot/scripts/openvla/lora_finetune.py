@@ -61,15 +61,15 @@ class FinetuneConfig:
     vla_path: str = "openvla/openvla-7b"  # Path to OpenVLA model (on HuggingFace Hub)
 
     # Directory Paths
-    dataset_repo_id = "lerobot/aloha_sim_transfer_cube_human_image"
+    dataset_repo_id = "m1b/new_setting_red_box"
     wandb: bool = True  # Whether to log to W&B
-    job_name: str = "finetune-openvla-transfer-cube"  # Name of W&B job
+    job_name: str = "finetune-openvla-koch-pick-lego"  # Name of W&B job
     delta_timestamps = None  # Delta timestamps for action prediction
     run_root_dir: Path = Path(
-        "/fsx/marina_barannikov/outputs/openvla/transfer_cube/runs"
+        "/fsx/marina_barannikov/outputs/openvla/koch_pick_lego/runs"
     )  # Path to directory to store logs & checkpoints
     adapter_tmp_dir: Path = Path(
-        "/fsx/marina_barannikov/outputs/openvla/transfer_cube/adapter-tmp"
+        "/fsx/marina_barannikov/outputs/openvla/koch_pick_lego/adapter-tmp"
     )  # Temporary directory for LoRA weights before fusing
 
     # Fine-tuning Parameters

@@ -12,8 +12,8 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 DATA_DIR = Path(os.environ["DATA_DIR"]) if "DATA_DIR" in os.environ else None
 CODEBASE_VERSION = "v1.4"
 
-instruction = "pick up the red cube"
-main_camera_key = "top"
+instruction = "put the cube into the red box"
+main_camera_key = "phone"
 to_pil = ToPILImage()
 
 
