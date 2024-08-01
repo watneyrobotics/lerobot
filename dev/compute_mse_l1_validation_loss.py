@@ -1,8 +1,10 @@
-import json
+import contextlib
 import math
 import os
+import shutil
 from pathlib import Path
 
+import pandas as pd
 import torch
 
 from lerobot.common.datasets.factory import make_dataset
@@ -40,49 +42,62 @@ def evaluate_checkpoint(policy, validation_loader, device):
             # For diffusion models, we need a single frame of the observation and action
             batch["observation.state"] = torch.squeeze(batch["observation.state"])
             batch["observation.image"] = torch.squeeze(batch["observation.image"])
+            batch["action"] = torch.squeeze(batch["action"])
         actions = batch["action"]
         observation = {key: batch[key].to(device, non_blocking=True) for key in keys}
         actions = actions.to(device)
         with torch.no_grad():
             policy.reset()
             predicted_actions = policy.select_action(observation)
-            print("Calculating MSE and L1 losses")
             mse_losses.append(mse_loss(predicted_actions, actions).item())
             l1_losses.append(l1_loss(predicted_actions, actions).item())
 
     return sum(mse_losses) / len(mse_losses), sum(l1_losses) / len(l1_losses)
 
 
-def main(hydra_cfg, root_dir, output_file):
+def main(hydra_cfg, list_of_dirs):
+    model_json = "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_85/020000/config.json"
     device = hydra_cfg.device
 
     val_dataset = get_train_val_datasets(hydra_cfg, split_value=0.8)
-    validation_loader = torch.utils.data.DataLoader(val_dataset, batch_size=8, shuffle=False)
+    validation_loader = torch.utils.data.DataLoader(val_dataset, batch_size=16, shuffle=False)
 
     results = []
-    for subdir in os.listdir(root_dir):
-        if subdir.isdigit():  # Check if the subdirectory name is numerical
-            subdir_path = os.path.join(root_dir, subdir)
-            checkpoint_path = os.path.join(subdir_path, "model.safetensors")
-            if os.path.isfile(checkpoint_path):
-                print(f"Loading checkpoint from {checkpoint_path}")
-                policy = make_policy(hydra_cfg=hydra_cfg, pretrained_policy_name_or_path=subdir_path)
-                print("Evaluating checkpoint")
-                mse, l1 = evaluate_checkpoint(policy, validation_loader, device)
-                results.append(
-                    {"checkpoint": subdir_path, "l1_loss": l1, "step": int(subdir), "mse_loss": mse}
-                )
+    for root_dir in list_of_dirs:
+        for subdir in os.listdir(root_dir):
+            if subdir.isdigit():  # Check if the subdirectory name is numerical
+                subdir_path = os.path.join(root_dir, subdir)
+                checkpoint_path = os.path.join(subdir_path, "model.safetensors")
+                if os.path.isfile(checkpoint_path):
+                    with contextlib.suppress(shutil.SameFileError):
+                        shutil.copy(model_json, subdir_path)
+                    print(f"Evaluating checkpoint from {checkpoint_path}")
+                    policy = make_policy(hydra_cfg=hydra_cfg, pretrained_policy_name_or_path=subdir_path)
+                    mse, l1 = evaluate_checkpoint(policy, validation_loader, device)
+                    results.append(
+                        {"root_checkpoint": root_dir, "l1_loss": l1, "step": int(subdir), "mse_loss": mse}
+                    )
 
-    with open(output_file, "w") as f:
-        json.dump(results, f, indent=4)
+    df = pd.DataFrame(results)
+
+    # Save DataFrame to a CSV file
+    output_file = "dev/pusht_results.csv"
+    df.to_csv(output_file, index=False)
+
+    print(f"Results saved to {output_file}")
 
     return
 
 
 if __name__ == "__main__":
-    policy_path = Path("/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_84/010000")
+    list_of_dirs = [
+        "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_85",
+        "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_84",
+        "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_100000",
+    ]
+    policy_path = Path("/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_85/010000")
     cfg = init_hydra_config(str(policy_path / "config.yaml"))
     cfg.training.delta_timestamps["observation.image"] = [0]
-    cfg.training.delta_timestamps["action"] = [i / 10 for i in range(8)]
+    cfg.training.delta_timestamps["action"] = [i / 10 for i in range(1)]
     cfg.training.delta_timestamps["observation.state"] = [0]
-    main(cfg, "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_84", "dev/test.json")
+    main(cfg, list_of_dirs)
