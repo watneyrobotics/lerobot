@@ -19,7 +19,10 @@ class ActionEnsembler:
             curr_act_preds = np.stack(self.action_history)
         else:
             curr_act_preds = np.stack(
-                [pred_actions[i] for (i, pred_actions) in zip(range(num_actions - 1, -1, -1), self.action_history)]
+                [
+                    pred_actions[i]
+                    for (i, pred_actions) in zip(range(num_actions - 1, -1, -1), self.action_history)
+                ]
             )
         # more recent predictions get exponentially *less* weight than older predictions
         weights = np.exp(-self.action_ensemble_temp * np.arange(num_actions))
@@ -28,7 +31,8 @@ class ActionEnsembler:
         cur_action = np.sum(weights[:, None] * curr_act_preds, axis=0)
 
         return cur_action
-    
+
+
 """
 action_tokenizer.py
 
@@ -56,7 +60,12 @@ class ActionTokenizer:
         :param min_action: Minimum action value (for clipping, setting lower bound on bin interval).
         :param max_action: Maximum action value (for clipping, setting upper bound on bin interval).
         """
-        self.tokenizer, self.n_bins, self.min_action, self.max_action = tokenizer, bins, min_action, max_action
+        self.tokenizer, self.n_bins, self.min_action, self.max_action = (
+            tokenizer,
+            bins,
+            min_action,
+            max_action,
+        )
 
         # Create Uniform Bins + Compute Bin Centers
         self.bins = np.linspace(min_action, max_action, self.n_bins)
@@ -97,4 +106,3 @@ class ActionTokenizer:
         discretized_actions = np.clip(discretized_actions - 1, a_min=0, a_max=self.bin_centers.shape[0] - 1)
 
         return self.bin_centers[discretized_actions]
-

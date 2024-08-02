@@ -102,7 +102,8 @@ def tree_map(fn: Callable, tree: dict) -> dict:
 def tree_map_with_key(fn: Callable, tree: dict, keys: Sequence = ()) -> dict:
     """Maps a function over a nested dictionary."""
     return {
-        k: tree_map_with_key(fn, v, (*keys, k)) if isinstance(v, dict) else fn((*keys, k), v) for k, v in tree.items()
+        k: tree_map_with_key(fn, v, (*keys, k)) if isinstance(v, dict) else fn((*keys, k), v)
+        for k, v in tree.items()
     }
 
 
@@ -118,7 +119,9 @@ class PaddedCollatorForLanguageModeling:
         self.dummy_pixel_values = torch.zeros(self.default_image_resolution, dtype=self.pixel_values_dtype)
 
     def __call__(self, instances: Sequence[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
-        input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
+        input_ids, labels = tuple(
+            [instance[key] for instance in instances] for key in ("input_ids", "labels")
+        )
         pixel_values = [instance["pixel_values"] for instance in instances]
 
         # For now, we only support Tokenizers with `padding_side = "right"` during Training (but plan to extend!)
@@ -179,7 +182,9 @@ class PaddedCollatorForActionPrediction:
     pixel_values_dtype: torch.dtype = torch.float32
 
     def __call__(self, instances: Sequence[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
-        input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
+        input_ids, labels = tuple(
+            [instance[key] for instance in instances] for key in ("input_ids", "labels")
+        )
         pixel_values = [instance["pixel_values"] for instance in instances]
         if "dataset_name" in instances[0]:
             dataset_names = [instance["dataset_name"] for instance in instances]
@@ -206,7 +211,8 @@ class PaddedCollatorForActionPrediction:
             pixel_values = torch.stack(pixel_values)
         elif isinstance(pixel_values[0], dict):
             pixel_values = {
-                k: torch.stack([pixel_values[idx][k] for idx in range(len(input_ids))]) for k in pixel_values[0]
+                k: torch.stack([pixel_values[idx][k] for idx in range(len(input_ids))])
+                for k in pixel_values[0]
             }
         else:
             raise ValueError(f"Unsupported `pixel_values` type = {type(pixel_values)}")
@@ -220,7 +226,6 @@ class PaddedCollatorForActionPrediction:
         if dataset_names is not None:
             output["dataset_names"] = dataset_names
         return output
-    
 
 
 """
