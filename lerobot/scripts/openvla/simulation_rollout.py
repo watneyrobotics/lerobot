@@ -1,18 +1,19 @@
-import gymnasium as gym
-import numpy as np
-import torch
-from pathlib import Path
 import json
+from pathlib import Path
+
+import gymnasium as gym
 import imageio
+import torch
+from inference import OpenVLAInference
 from PIL import Image
 
-from make_env import make_env
+from lerobot.common.envs.factory import make_env
 from lerobot.common.utils.utils import init_hydra_config, set_global_seed
-from inference import OpenVLAInference
+
 
 def rollout_single_episode(
     env: gym.Env,
-    inference = None,
+    inference=None,
     render_video: bool = False,
     video_path: str = "./eval_episode.mp4",
     prompt: str = "",
@@ -59,9 +60,8 @@ def rollout_single_episode(
             frame = Image.fromarray(next_observation["pixels"]["top"])
             ep_frames.append(frame)
 
-
     # Stack lists of tensors into tensors
-    ret = {
+    output = {
         "action": torch.stack(all_actions).tolist(),
         "reward": torch.stack(all_rewards).tolist(),
         "success": torch.stack(all_successes).tolist(),
@@ -77,13 +77,14 @@ def rollout_single_episode(
         # Save video using imageio
         imageio.mimwrite(video_path, ep_frames, fps=fps)
 
-    return ret
+    return output
 
-def main( output_dir, render_video, hydra_config_path, config_overrides):
+
+def main(output_dir, render_video, hydra_config_path, config_overrides):
     prompt = "In: What action should the robot take to pick up the red cube with the right arm and transfer it to the left arm? \nOut:"
     hydra_cfg = init_hydra_config(hydra_config_path, config_overrides)
     print("Initialized Hydra config.")
-    
+
     # Set seed
     set_global_seed(hydra_cfg.seed)
     print("Set seed.")
@@ -91,7 +92,7 @@ def main( output_dir, render_video, hydra_config_path, config_overrides):
 
     # Load inference model
     model_path = "/admin/home/marina_barannikov/projects/lerobot/runs/openvlamodel"
-    inference = OpenVLAInference(policy_setup = "aloha", saved_model_path = model_path, unnorm_key = "aloha")
+    inference = OpenVLAInference(policy_setup="aloha", saved_model_path=model_path, unnorm_key="aloha")
     print("Loaded inference model.")
     # Create environment
     env = make_env(hydra_cfg, n_envs=1)
@@ -99,7 +100,9 @@ def main( output_dir, render_video, hydra_config_path, config_overrides):
     fps = env.metadata["render_fps"]
     # Run a single episode rollout
     print("Running rollout...")
-    rollout_metrics = rollout_single_episode(env, inference, render_video=render_video, prompt=prompt, fps=fps)
+    rollout_metrics = rollout_single_episode(
+        env, inference, render_video=render_video, prompt=prompt, fps=fps
+    )
 
     # Save rollout metrics
     output_dir = Path(output_dir)
@@ -107,11 +110,16 @@ def main( output_dir, render_video, hydra_config_path, config_overrides):
     with open(output_dir / "rollout_metrics.json", "w") as f:
         json.dump(rollout_metrics, f)
 
+
 if __name__ == "__main__":
     seed = 84
     output_dir = "outputs"
     render_video = True
     hydra_config_path = "/admin/home/marina_barannikov/projects/lerobot/lerobot/configs/default.yaml"
-    config_overrides = ["env=aloha", "dataset_repo_id=lerobot/aloha_sim_transfer_cube_human", "env.task=AlohaTransferCube-v0"]
+    config_overrides = [
+        "env=aloha",
+        "dataset_repo_id=lerobot/aloha_sim_transfer_cube_human",
+        "env.task=AlohaTransferCube-v0",
+    ]
 
     main(output_dir, render_video, hydra_config_path, config_overrides)

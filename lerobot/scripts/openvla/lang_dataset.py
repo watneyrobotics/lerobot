@@ -12,18 +12,21 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 DATA_DIR = Path(os.environ["DATA_DIR"]) if "DATA_DIR" in os.environ else None
 CODEBASE_VERSION = "v1.4"
 
+instruction = "pick up the red cube"
+main_camera_key = "top"
+to_pil = ToPILImage()
+
 
 def tensor_to_image(tensor: torch.Tensor) -> Image:
     """Converts a torch tensor to a PIL image."""
-    return ToPILImage(tensor)
+    return to_pil(tensor)
 
 
 class LanguageLeRobotDataset(LeRobotDataset):
     def __init__(
         self,
         repo_id: str,
-        version: str | None = CODEBASE_VERSION,
-        root: Path | None = DATA_DIR,
+        root: Path | None = None,
         split: str = "train",
         image_transforms: Callable | None = None,
         delta_timestamps: dict[list[float]] | None = None,
@@ -31,7 +34,7 @@ class LanguageLeRobotDataset(LeRobotDataset):
         action_tokenizer: Callable = None,
         processor: Callable = None,
     ):
-        super().__init__(self, repo_id, version, root, split, image_transforms, delta_timestamps)
+        super().__init__(repo_id, root, split, image_transforms, delta_timestamps)
         self.prompt_builder_fn = prompt_builder_fn
         self.action_tokenizer = action_tokenizer
         self.processor = processor
@@ -41,8 +44,8 @@ class LanguageLeRobotDataset(LeRobotDataset):
         item = super().__getitem__(idx)
 
         action = item["action"]
-        img = tensor_to_image(item["observation.images.cam_high"])
-        lang = "take a piece of tape"
+        img = tensor_to_image(item[f"observation.images.{main_camera_key}"])
+        lang = instruction
 
         # Construct Chat-based Prompt
         prompt_builder = self.prompt_builder_fn("openvla")
