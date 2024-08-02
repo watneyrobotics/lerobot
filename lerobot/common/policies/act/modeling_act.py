@@ -129,8 +129,8 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
 
             # `self.model.forward` returns a (batch_size, n_action_steps, action_dim) tensor, but the queue
             # effectively has shape (n_action_steps, batch_size, *), hence the transpose.
-            self._action_queue.extend(actions.transpose(0, 1))
-        return self._action_queue.popleft()
+            self._action_queue.extend(actions)
+        return torch.stack(list(self._action_queue))
 
     def forward(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
         """Run the batch through the model and compute the loss for training or validation."""

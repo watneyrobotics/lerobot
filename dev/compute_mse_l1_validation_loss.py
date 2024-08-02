@@ -42,10 +42,9 @@ def evaluate_checkpoint(policy, validation_loader, device):
             # For diffusion models, we need a single frame of the observation and action
             batch["observation.state"] = torch.squeeze(batch["observation.state"])
             batch["observation.image"] = torch.squeeze(batch["observation.image"])
-            batch["action"] = torch.squeeze(batch["action"])
-        actions = batch["action"]
+        batch["action"] = torch.squeeze(batch["action"])
         observation = {key: batch[key].to(device, non_blocking=True) for key in keys}
-        actions = actions.to(device)
+        actions = batch["action"].to(device, non_blocking=True)
         with torch.no_grad():
             policy.reset()
             predicted_actions = policy.select_action(observation)
@@ -56,7 +55,7 @@ def evaluate_checkpoint(policy, validation_loader, device):
 
 
 def main(hydra_cfg, list_of_dirs):
-    model_json = "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_85/020000/config.json"
+    model_json = "/fsx/marina_barannikov/outputs/train/compare_val_loss/transfer_cube_84/030000/config.json"
     device = hydra_cfg.device
 
     val_dataset = get_train_val_datasets(hydra_cfg, split_value=0.8)
@@ -81,7 +80,7 @@ def main(hydra_cfg, list_of_dirs):
     df = pd.DataFrame(results)
 
     # Save DataFrame to a CSV file
-    output_file = "dev/pusht_results.csv"
+    output_file = "dev/transfer_cube_results.csv"
     df.to_csv(output_file, index=False)
 
     print(f"Results saved to {output_file}")
@@ -91,13 +90,10 @@ def main(hydra_cfg, list_of_dirs):
 
 if __name__ == "__main__":
     list_of_dirs = [
-        "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_85",
-        "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_84",
-        "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_100000",
+        "/fsx/marina_barannikov/outputs/train/compare_val_loss/transfer_cube_85",
+        "/fsx/marina_barannikov/outputs/train/compare_val_loss/transfer_cube_84",
+        "/fsx/marina_barannikov/outputs/train/compare_val_loss/transfer_cube_1000",
     ]
-    policy_path = Path("/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_85/010000")
+    policy_path = Path("/fsx/marina_barannikov/outputs/train/compare_val_loss/transfer_cube_84/010000")
     cfg = init_hydra_config(str(policy_path / "config.yaml"))
-    cfg.training.delta_timestamps["observation.image"] = [0]
-    cfg.training.delta_timestamps["action"] = [i / 10 for i in range(1)]
-    cfg.training.delta_timestamps["observation.state"] = [0]
     main(cfg, list_of_dirs)

@@ -219,4 +219,4 @@ base_model_name = "compare_val_loss_transfer_cube"
 # plot_train_loss(csv_file, base_model_name, output_dir=output_dir)
 
 csv = "dev/pusht_results.csv"
-plot_l1_loss(csv, "pusht")
+plot_mse_loss(csv, "pusht")
