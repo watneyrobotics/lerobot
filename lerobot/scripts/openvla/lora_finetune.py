@@ -3,11 +3,9 @@ from pathlib import Path
 
 import torch
 import tqdm
-from action_tokenizer import ActionTokenizer
-from base_prompt import PurePromptBuilder
-from collator import PaddedCollatorForActionPrediction
-from data_utils import compute_action_q01_q99
-from lang_dataset import LanguageLeRobotDataset
+from lerobot.common.policies.openvla.modeling_openvla import ActionEnsembler, ActionTokenizer
+from lerobot.common.policies.openvla.utils import compute_action_q01_q99
+from lerobot.common.policies.openvla.language_dataset import LanguageLeRobotDataset, PaddedCollatorForActionPrediction, PurePromptBuilder
 from peft import LoraConfig, PeftModel, get_peft_model
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
