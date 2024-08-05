@@ -289,6 +289,7 @@ class ACT(nn.Module):
         self.use_robot_state = "observation.state" in config.input_shapes
         self.use_images = any(k.startswith("observation.image") for k in config.input_shapes)
         self.use_env_state = "observation.environment_state" in config.input_shapes
+        self.use_dataset_index = "dataset_index" in config.input_shapes
         if self.config.use_vae:
             self.vae_encoder = ACTEncoder(config)
             self.vae_encoder_cls_embed = nn.Embedding(1, config.dim_model)
@@ -340,9 +341,12 @@ class ACT(nn.Module):
                 config.input_shapes["observation.environment_state"][0], config.dim_model
             )
         # Dataset index embedding.
-        if "dataset_index" in config.input_shapes:
+        if self.use_dataset_index:
             # create a FiLM layer to condition on dataset index after the image features
             self.film_layer = FiLMLayer(num_relations=1, out_features=config.dim_model, dropout=0.0)
+            self.encoder_dataset_index_input_proj = nn.Embedding(
+                num_embeddings=2, embedding_dim=config.dim_model
+            )
 
         self.encoder_latent_input_proj = nn.Linear(config.latent_dim, config.dim_model)
 
@@ -356,6 +360,8 @@ class ACT(nn.Module):
         if self.use_robot_state:
             n_1d_tokens += 1
         if self.use_env_state:
+            n_1d_tokens += 1
+        if self.use_dataset_index:
             n_1d_tokens += 1
         self.encoder_1d_feature_pos_embed = nn.Embedding(n_1d_tokens, config.dim_model)
         if self.use_images:
@@ -475,7 +481,8 @@ class ACT(nn.Module):
             encoder_in_tokens.append(
                 self.encoder_env_state_input_proj(batch["observation.environment_state"])
             )
-
+        if self.use_dataset_index:
+            encoder_in_tokens.append(self.encoder_dataset_index_input_proj(batch["dataset_index"]))
         # Camera observation features and positional embeddings.
         if self.use_images:
             all_cam_features = []
