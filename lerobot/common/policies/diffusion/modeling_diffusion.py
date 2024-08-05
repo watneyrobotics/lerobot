@@ -127,12 +127,14 @@ class DiffusionPolicy(nn.Module, PyTorchModelHubMixin):
             actions = self.diffusion.generate_actions(batch)
 
             # TODO(rcadene): make above methods return output dictionary?
-            actions = self.unnormalize_outputs({"action": actions})["action"]
-
+            # actions = self.unnormalize_outputs({"action": actions})["action"]
             self._queues["action"].extend(actions.transpose(0, 1))
 
         action = self._queues["action"].popleft()
         return action
+
+        # self._queues["action"].extend(actions)
+        # return torch.stack(list(self._queues["action"]))
 
     def forward(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
         """Run the batch through the model and compute the loss for training or validation."""

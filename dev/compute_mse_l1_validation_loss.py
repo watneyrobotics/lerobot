@@ -40,13 +40,16 @@ def evaluate_checkpoint(policy, validation_loader, device):
     for batch in validation_loader:
         if isinstance(policy, DiffusionPolicy):
             # For diffusion models, we need a single frame of the observation and action
-            batch["observation.state"] = torch.squeeze(batch["observation.state"])
-            batch["observation.image"] = torch.squeeze(batch["observation.image"])
-        batch["action"] = torch.squeeze(batch["action"])
+            batch["observation.state"] = torch.squeeze(batch["observation.state"], dim=1)
+            batch["observation.image"] = torch.squeeze(batch["observation.image"], dim=1)
+            batch["action"] = torch.squeeze(batch["action"], dim=1)
+        else:
+            batch["action"] = torch.squeeze(batch["action"])
         observation = {key: batch[key].to(device, non_blocking=True) for key in keys}
-        actions = batch["action"].to(device, non_blocking=True)
+        batch["action"] = batch["action"].to(device, non_blocking=True)
+        batch = policy.normalize_targets(batch)
+        actions = batch["action"]
         with torch.no_grad():
-            policy.reset()
             predicted_actions = policy.select_action(observation)
             mse_losses.append(mse_loss(predicted_actions, actions).item())
             l1_losses.append(l1_loss(predicted_actions, actions).item())
@@ -55,11 +58,11 @@ def evaluate_checkpoint(policy, validation_loader, device):
 
 
 def main(hydra_cfg, list_of_dirs):
-    model_json = "/fsx/marina_barannikov/outputs/train/compare_val_loss/transfer_cube_84/030000/config.json"
+    model_json = "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_84/020000/config.json"
     device = hydra_cfg.device
 
     val_dataset = get_train_val_datasets(hydra_cfg, split_value=0.8)
-    validation_loader = torch.utils.data.DataLoader(val_dataset, batch_size=16, shuffle=False)
+    validation_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=False)
 
     results = []
     for root_dir in list_of_dirs:
@@ -80,7 +83,7 @@ def main(hydra_cfg, list_of_dirs):
     df = pd.DataFrame(results)
 
     # Save DataFrame to a CSV file
-    output_file = "dev/transfer_cube_results.csv"
+    output_file = "dev/pusht_normalized_results.csv"
     df.to_csv(output_file, index=False)
 
     print(f"Results saved to {output_file}")
@@ -90,10 +93,14 @@ def main(hydra_cfg, list_of_dirs):
 
 if __name__ == "__main__":
     list_of_dirs = [
-        "/fsx/marina_barannikov/outputs/train/compare_val_loss/transfer_cube_85",
-        "/fsx/marina_barannikov/outputs/train/compare_val_loss/transfer_cube_84",
-        "/fsx/marina_barannikov/outputs/train/compare_val_loss/transfer_cube_1000",
+        "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_85",
+        "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_84",
+        "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_100000",
     ]
-    policy_path = Path("/fsx/marina_barannikov/outputs/train/compare_val_loss/transfer_cube_84/010000")
+    policy_path = Path("/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_84/010000")
     cfg = init_hydra_config(str(policy_path / "config.yaml"))
+    if cfg.policy.name == "diffusion":
+        cfg.training.delta_timestamps["observation.state"] = [0]
+        cfg.training.delta_timestamps["observation.image"] = [0]
+        cfg.training.delta_timestamps["action"] = [i / 10 for i in range(1)]
     main(cfg, list_of_dirs)
