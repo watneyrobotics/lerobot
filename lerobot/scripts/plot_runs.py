@@ -13,147 +13,95 @@ def smooth_data(data, window_size=5):
     smoothed_data = data.rolling(window=window_size, min_periods=1).mean()
     return smoothed_data
 
-
-def plot_success_rate(csv_file, base_model_name, output_dir="outputs/plots"):
+def plot_metrics(csv_file, base_model_name, plot_type, output_dir="outputs/plots", smooth_window=5):
     # Load the CSV data
     data = pd.read_csv(csv_file)
 
-    # Columns related to the specified model name
-    columns = [
-        f"{base_model_name}_84 - eval/pc_success",
-        f"{base_model_name}_85 - eval/pc_success",
-        f"{base_model_name}_1000 - eval/pc_success",
-    ]
+    # Define column names and labels based on plot_type
+    if plot_type == "success_rate":
+        columns = [
+            f"{base_model_name}_84 - eval/pc_success",
+            f"{base_model_name}_85 - eval/pc_success",
+            f"{base_model_name}_1000 - eval/pc_success",
+        ]
+        y_label = "Success Rate"
+        title = "Success Rate Across Steps"
+        mean_col = "mean_success"
+        std_col = "std_success"
 
-    data["mean_success"] = data[columns].mean(axis=1)
-    data["min_success"] = data[columns].min(axis=1)
-    data["max_success"] = data[columns].max(axis=1)
+    elif plot_type == "validation_loss":
+        columns = [
+            f"{base_model_name}_1000 - val/loss",
+            f"{base_model_name}_85 - val/loss",
+            f"{base_model_name}_84 - val/loss",
+        ]
+        y_label = "Validation Loss"
+        title = "Validation Loss Across Steps"
+        mean_col = "mean_val_loss"
+        std_col = "std_val_loss"
 
-    # Create a Seaborn plot
+    elif plot_type == "train_loss":
+        # Remove outliers for train_loss plot
+        data = data.iloc[30:]
+        columns = [
+            f"{base_model_name}_1000 - train/loss",
+            f"{base_model_name}_85 - train/loss",
+            f"{base_model_name}_84 - train/loss",
+        ]
+        y_label = "Training Loss"
+        title = "Training Loss Across Steps"
+        mean_col = "mean_train_loss"
+        std_col = "std_train_loss"
+
+    else:
+        raise ValueError("Invalid plot_type. Choose from 'success_rate', 'validation_loss', or 'train_loss'.")
+
+    # Smooth data and compute mean and standard deviation
+    smoothed_data = data[columns].rolling(window=smooth_window, min_periods=1).mean()
+    data[mean_col] = smoothed_data.mean(axis=1)
+    data[std_col] = smoothed_data.std(axis=1)
+
+    # Create the plot
     plt.figure(figsize=(10, 6))
-    sns.lineplot(x=data["Step"], y=data["mean_success"], label="Mean Success Rate")
-    plt.fill_between(data["Step"], data["min_success"], data["max_success"], alpha=0.3, label="Range")
-
+    sns.lineplot(x=data["Step"], y=data[mean_col], label=f"Mean {y_label}")
+    plt.fill_between(data["Step"], 
+                     data[mean_col] - data[std_col], 
+                     data[mean_col] + data[std_col], 
+                     alpha=0.3, 
+                     label="Standard Deviation")
+    
     # Add labels and title
     plt.xlabel("Step")
-    plt.ylabel("Success Rate")
-    plt.title("Success Rate Across Steps")
+    plt.ylabel(y_label)
+    plt.title(title)
     plt.legend()
 
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
     # Save the plot
-    output_file = f"{output_dir}/{base_model_name}_success_rate.png"
+    output_file = f"{output_dir}/{base_model_name}_{plot_type}.png"
     plt.savefig(output_file)
+    plt.show()
 
     print(f"Plot saved to: {output_file}")
-
-    # Show the plot
-    plt.show()
-
-
-def plot_validation_loss(csv_file, base_model_name, output_dir="outputs/plots", smooth_window=5):
-    # Load the CSV data
-    data = pd.read_csv(csv_file)
-
-    # Columns related to the specified model name for validation loss
-    columns = [
-        f"{base_model_name}_1000 - val/loss",
-        f"{base_model_name}_85 - val/loss",
-        f"{base_model_name}_84 - val/loss",
-    ]
-
-    # Smooth all data across the specified columns
-    smoothed_data = data[columns].rolling(window=smooth_window, min_periods=1).mean()
-
-    # Smooth min and max values across the columns
-    smoothed_min_val = data[columns].min(axis=1).rolling(window=smooth_window, min_periods=1).mean()
-    smoothed_max_val = data[columns].max(axis=1).rolling(window=smooth_window, min_periods=1).mean()
-    data["mean_val_loss"] = smoothed_data.mean(axis=1)
-
-    # Create a Seaborn plot
-    plt.figure(figsize=(10, 6))
-
-    # Plot each smoothed series
-    sns.lineplot(x=data["Step"], y=data["mean_val_loss"], label="Mean Validation Loss")
-
-    # Plot smoothed min and max values in background
-    plt.fill_between(data["Step"], smoothed_min_val, smoothed_max_val, alpha=0.3, label="Range")
-
-    # Add labels and title
-    plt.xlabel("Step")
-    plt.ylabel("Validation Loss")
-    plt.title("Validation Loss Across Steps")
-    plt.legend()
-
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Save the plot
-    output_file = f"{output_dir}/{base_model_name}_validation_loss.png"
-    plt.savefig(output_file)
-
-    # Show the plot
-    plt.show()
-
-
-def plot_train_loss(csv_file, base_model_name, output_dir="outputs/plots", smooth_window=5):
-    # Load the CSV data
-    data = pd.read_csv(csv_file)
-    data = data.iloc[30:]
-
-    # Columns related to the specified model name for validation loss
-    columns = [
-        f"{base_model_name}_1000 - train/loss",
-        f"{base_model_name}_85 - train/loss",
-        f"{base_model_name}_84 - train/loss",
-    ]
-
-    # Smooth all data across the specified columns
-    smoothed_data = data[columns].rolling(window=smooth_window, min_periods=1).mean()
-    data["mean_train_loss"] = smoothed_data.mean(axis=1)
-    # Smooth min and max values across the columns
-    smoothed_min_train = data[columns].min(axis=1).rolling(window=smooth_window, min_periods=1).mean()
-    smoothed_max_train = data[columns].max(axis=1).rolling(window=smooth_window, min_periods=1).mean()
-
-    # Create a Seaborn plot
-    plt.figure(figsize=(10, 6))
-
-    # Plot mean training loss on a logarithmic scale
-    sns.lineplot(x=data["Step"], y=data["mean_train_loss"], label="Mean Training Loss")
-
-    # Plot smoothed min and max values in background on a logarithmic scale
-    plt.fill_between(data["Step"], smoothed_min_train, smoothed_max_train, alpha=0.3, label="Range")
-
-    # Add labels and title
-    plt.xlabel("Step")
-    plt.ylabel("Training Loss")
-    plt.title("Training Loss Across Steps")
-    plt.legend()
-
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Save the plot
-    output_file = f"{output_dir}/{base_model_name}_train_loss_without_outliers.png"
-    plt.savefig(output_file)
-
-    # Show the plot
-    plt.show()
 
 
 def plot_mse_loss(csv_file, base_model_name, output_dir="outputs/plots"):
     # Load the CSV data
     data = pd.read_csv(csv_file)
-
-    # Group by 'step' and calculate mean, min, and max for 'mse_loss'
-    grouped_data = data.groupby("step")["mse_loss"].agg(["mean", "min", "max"]).reset_index()
+    
+    # Group by 'step' and calculate mean and std for 'mse_loss'
+    grouped_data = data.groupby("step")["mse_loss"].agg(["mean", "std"]).reset_index()
 
     # Create a Seaborn plot
     plt.figure(figsize=(10, 6))
     sns.lineplot(x=grouped_data["step"], y=grouped_data["mean"], label="Mean MSE Loss")
-    plt.fill_between(grouped_data["step"], grouped_data["min"], grouped_data["max"], alpha=0.3, label="Range")
+    plt.fill_between(grouped_data["step"], 
+                     grouped_data["mean"] - grouped_data["std"], 
+                     grouped_data["mean"] + grouped_data["std"], 
+                     alpha=0.3, 
+                     label="Standard Deviation")
 
     # Add labels and title
     plt.xlabel("Step")
@@ -170,7 +118,6 @@ def plot_mse_loss(csv_file, base_model_name, output_dir="outputs/plots"):
 
     print(f"Plot saved to: {output_file}")
 
-    # Show the plot
     plt.show()
 
 
@@ -207,16 +154,12 @@ def plot_l1_loss(csv_file, base_model_name, output_dir="outputs/plots"):
 
 # Example usage
 csv_file = (
-    "/Users/mbar/Desktop/projects/huggingface/experiments/csv/wandb_export_2024-07-01T14_03_14.709+02_00.csv"
+    "/Users/mbar/Desktop/projects/huggingface/experiments/csv/wandb_export_2024-07-01T12_46_39.804+02_00.csv"
 )
 output_dir = "/Users/mbar/Desktop/projects/huggingface/experiments/plots"
 base_model_name = "compare_val_loss_transfer_cube"
 
-# plot_validation_loss(csv_file, base_model_name, output_dir=output_dir)
-
-# plot_success_rate(csv_file, base_model_name, output_dir=output_dir)
-
-# plot_train_loss(csv_file, base_model_name, output_dir=output_dir)
+plot_metrics(csv_file, base_model_name, "success_rate", output_dir=output_dir)
 
 csv = "dev/pusht_results.csv"
-plot_mse_loss(csv, "pusht")
+#plot_mse_loss(csv, "pusht")
