@@ -148,7 +148,10 @@ def rollout(
             all_observations.append(deepcopy(observation))
 
         if dataset_index is not None:
-            observation["dataset_index"] = torch.tensor([dataset_index])
+            # Batch the dataset index.
+            observation["dataset_index"] = torch.full(
+                (observation["observation.state"].shape[0],), dataset_index
+            )
 
         observation = {key: observation[key].to(device, non_blocking=True) for key in observation}
 
