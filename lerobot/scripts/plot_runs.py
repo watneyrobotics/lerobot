@@ -13,6 +13,7 @@ def smooth_data(data, window_size=5):
     smoothed_data = data.rolling(window=window_size, min_periods=1).mean()
     return smoothed_data
 
+
 def plot_metrics(csv_file, base_model_name, plot_type, output_dir="outputs/plots", smooth_window=5):
     # Load the CSV data
     data = pd.read_csv(csv_file)
@@ -64,12 +65,14 @@ def plot_metrics(csv_file, base_model_name, plot_type, output_dir="outputs/plots
     # Create the plot
     plt.figure(figsize=(10, 6))
     sns.lineplot(x=data["Step"], y=data[mean_col], label=f"Mean {y_label}")
-    plt.fill_between(data["Step"], 
-                     data[mean_col] - data[std_col], 
-                     data[mean_col] + data[std_col], 
-                     alpha=0.3, 
-                     label="Standard Deviation")
-    
+    plt.fill_between(
+        data["Step"],
+        data[mean_col] - data[std_col],
+        data[mean_col] + data[std_col],
+        alpha=0.3,
+        label="Standard Deviation",
+    )
+
     # Add labels and title
     plt.xlabel("Step")
     plt.ylabel(y_label)
@@ -90,18 +93,20 @@ def plot_metrics(csv_file, base_model_name, plot_type, output_dir="outputs/plots
 def plot_mse_loss(csv_file, base_model_name, output_dir="outputs/plots"):
     # Load the CSV data
     data = pd.read_csv(csv_file)
-    
+
     # Group by 'step' and calculate mean and std for 'mse_loss'
     grouped_data = data.groupby("step")["mse_loss"].agg(["mean", "std"]).reset_index()
 
     # Create a Seaborn plot
     plt.figure(figsize=(10, 6))
     sns.lineplot(x=grouped_data["step"], y=grouped_data["mean"], label="Mean MSE Loss")
-    plt.fill_between(grouped_data["step"], 
-                     grouped_data["mean"] - grouped_data["std"], 
-                     grouped_data["mean"] + grouped_data["std"], 
-                     alpha=0.3, 
-                     label="Standard Deviation")
+    plt.fill_between(
+        grouped_data["step"],
+        grouped_data["mean"] - grouped_data["std"],
+        grouped_data["mean"] + grouped_data["std"],
+        alpha=0.3,
+        label="Standard Deviation",
+    )
 
     # Add labels and title
     plt.xlabel("Step")
@@ -125,13 +130,19 @@ def plot_l1_loss(csv_file, base_model_name, output_dir="outputs/plots"):
     # Load the CSV data
     data = pd.read_csv(csv_file)
 
-    # Group by 'step' and calculate mean, min, and max for 'mse_loss'
-    grouped_data = data.groupby("step")["l1_loss"].agg(["mean", "min", "max"]).reset_index()
+    # Group by 'step' and calculate mean and std for 'mse_loss'
+    grouped_data = data.groupby("step")["l1_loss"].agg(["mean", "std"]).reset_index()
 
     # Create a Seaborn plot
     plt.figure(figsize=(10, 6))
     sns.lineplot(x=grouped_data["step"], y=grouped_data["mean"], label="Mean L1 Loss")
-    plt.fill_between(grouped_data["step"], grouped_data["min"], grouped_data["max"], alpha=0.3, label="Range")
+    plt.fill_between(
+        grouped_data["step"],
+        grouped_data["mean"] - grouped_data["std"],
+        grouped_data["mean"] + grouped_data["std"],
+        alpha=0.3,
+        label="Standard Deviation",
+    )
 
     # Add labels and title
     plt.xlabel("Step")
@@ -159,7 +170,7 @@ csv_file = (
 output_dir = "/Users/mbar/Desktop/projects/huggingface/experiments/plots"
 base_model_name = "compare_val_loss_transfer_cube"
 
-plot_metrics(csv_file, base_model_name, "success_rate", output_dir=output_dir)
+# plot_metrics(csv_file, base_model_name, "success_rate", output_dir=output_dir)
 
-csv = "dev/pusht_results.csv"
-#plot_mse_loss(csv, "pusht")
+csv = "dev/transfer_cube_results.csv"
+plot_l1_loss(csv, "transfer_cube")
