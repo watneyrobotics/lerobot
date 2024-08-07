@@ -56,7 +56,7 @@ REPO_NAME = "git@github.com:marinabar/lerobot.git"
 USER = os.environ["USER"]
 WORKDIR = os.getcwd()
 
-# Arguments for eval.py script
+# Specific arguments for eval.py script
 checkpoints = [
     "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_84/080000",
 ]
@@ -67,7 +67,9 @@ output_dirs = [
 
 # Common arguments for both eval.py and train.pu scripts
 job_args = [
-    "eval.n_episodes=1 eval.use_async_envs=false eval.batch_size=1",
+    " hydra.job.name=train_test_pusht \
+ hydra.run.dir=/admin/home/marina_barannikov/projects/lerobot/outputs/eval/test/minipusht \
+ training.offline_steps=1000 ",
 ]
 
 # Commit hashes to checkout the right code version
@@ -75,16 +77,15 @@ commits = [
     "main",
 ]
 
-# Wwill be used for naming the sbatch jobs, logging
+# Will be used for naming the sbatch jobs, logging
 job_names = [
-    "eval_test_pusht_84_80k",
+    "train_test_pusht",
 ]
 
 
 # Get the current time and date for logging
 current_time = datetime.datetime.now()
 time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
-print(time.split("_"))
 
 
 # Use this function to run the jobs from the lists defined above
@@ -133,7 +134,9 @@ def create_train_job_from_dict(train_args, commits, job_names):
         )
 
     # Save all sbatch commands to a JSON file
-    json_filename = f"param_jobs/train_slurm_jobs_{time}.json"
+    json_filename = f"outputs/param_jobs/train_slurm_jobs_{time}.json"
+    os.makedirs(os.path.dirname(json_filename), exist_ok=True)
+
     with open(json_filename, "w") as json_file:
         json.dump(job_parameters, json_file, indent=4)
 
@@ -145,20 +148,24 @@ def json_to_dict(json_filename, script):
     with open(json_filename) as json_file:
         saved_jobs = json.load(json_file)
 
-    checkpoints = [saved_jobs[job_name].get("checkpoint", "") for job_name in job_names]
-    output_dirs = [saved_jobs[job_name].get("output_dir", "") for job_name in job_names]
-    args_list = [saved_jobs[job_name].get("arg") for job_name in job_names]
+    job_names = list(saved_jobs.keys())
+
+    checkpoints = [saved_jobs[job_name].get("checkpoint") for job_name in job_names]
+    output_dirs = [saved_jobs[job_name].get("output_dir") for job_name in job_names]
+    job_args = [saved_jobs[job_name].get("job_arg") for job_name in job_names]
     commits = [saved_jobs[job_name].get("commit") for job_name in job_names]
 
-    run_job(
-        script=script,
-        script_arg=args_list,
-        commit=commits,
-        job_name=job_names,
-        checkpoint_path=checkpoints,
-        output_path=output_dirs,
-        job_parameters=saved_jobs,
-    )
+    for i in range(len(job_names)):
+        print(f"Re-running job {job_names[i]}")
+
+        run_job(
+            script=script,
+            script_arg=job_args[i],
+            commit=commits[i],
+            job_name=job_names[i],
+            checkpoint_path=checkpoints[i],
+            output_path=output_dirs[i],
+        )
 
 
 # This is the main function that submits a single job to the cluster
@@ -176,12 +183,13 @@ def run_job(
         commit = "main"
         command = custom_command
         if "eval.py" in custom_command:
+            # Create job name based on the checkpoint path
             job_name = f"{time.split('_')[1]}_{command.split('-p')[1].split()[0].replace('/', '_')}"
             if "--out-dir" not in custom_command:
                 out_dir = f"{WORKDIR}/outputs/eval/{time.split('_')[0]}/{job_name}"
                 command += f" --out-dir {out_dir}"
                 print(
-                    "WARNING: No output directory was specified, default directory was in the created temporary folder."
+                    "No output directory was specified, default directory was in the created temporary folder."
                 )
                 print(
                     f"New directory was created at {out_dir}. To change the output directory, provide the --out-dir argument."
@@ -199,7 +207,7 @@ def run_job(
                     f"train.py hydra.run.dir={WORKDIR}/outputs/train/{time.split('_')[0]}/{job_name}",
                 )
                 print(
-                    "WARNING: No run directory was specified, default directory was in the created temporary folder."
+                    "No run directory was specified, default directory was in the created temporary folder."
                 )
                 print(
                     f"New directory was created at {WORKDIR}/outputs/train/{time.split('_')[0]}/{job_name}. To change the run directory, provide the hydra.run.dir argument."
@@ -214,7 +222,7 @@ def run_job(
                 f"python lerobot/scripts/eval.py {script_arg} -p {checkpoint_path} --out-dir {output_path}"
             )
         elif script == "train":
-            if not all([script, script_arg, commit, job_name]):
+            if not all([script_arg, commit, job_name]):
                 raise ValueError("Missing arguments for training.")
             command = f"python lerobot/scripts/train.py {script_arg}"
         else:
@@ -298,5 +306,9 @@ if __name__ == "__main__":
         run_job(None, None, None, None, None, None, custom_command)
     else:
         print("Running jobs from the parameters lists defined in the Python file.")
-        create_eval_job_from_dict(checkpoints, output_dirs, job_args, commits, job_names)
-        # create_train_job_from_dict(train_args, commits, job_names)
+        # create_eval_job_from_dict(checkpoints, output_dirs, job_args, commits, job_names)
+        # create_train_job_from_dict(job_args, commits, job_names)
+        json_to_dict(
+            "/admin/home/marina_barannikov/projects/lerobot/param_jobs/train_slurm_jobs_2024-08-07_13-55-35.json",
+            "train",
+        )
