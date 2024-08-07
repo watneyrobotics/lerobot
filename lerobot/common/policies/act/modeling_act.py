@@ -342,8 +342,6 @@ class ACT(nn.Module):
             )
         # Dataset index embedding.
         if self.use_dataset_index:
-            # create a FiLM layer to condition on dataset index after the image features
-            self.film_layer = FiLMLayer(num_relations=1, out_features=config.dim_model, dropout=0.0)
             self.encoder_dataset_index_input_proj = nn.Embedding(
                 num_embeddings=2, embedding_dim=config.dim_model
             )
@@ -492,8 +490,6 @@ class ACT(nn.Module):
                 # buffer
                 cam_pos_embed = self.encoder_cam_feat_pos_embed(cam_features).to(dtype=cam_features.dtype)
                 cam_features = self.encoder_img_feat_input_proj(cam_features)  # (B, C, h, w)
-                if "dataset_index" in self.config.input_shapes:
-                    cam_features = self.film_layer(cam_features, batch["dataset_index"])
                 all_cam_features.append(cam_features)
                 all_cam_pos_embeds.append(cam_pos_embed)
             # Concatenate camera observation feature maps and positional embeddings along the width dimension,
@@ -762,25 +758,3 @@ def get_activation_fn(activation: str) -> Callable:
     if activation == "glu":
         return F.glu
     raise RuntimeError(f"activation should be relu/gelu/glu, not {activation}.")
-
-
-class FiLMLayer(nn.Module):
-    def __init__(self, out_features, num_relations, dropout=0.0):
-        super().__init__()
-        self.gamma_linear = nn.Linear(num_relations, out_features=out_features)
-        self.beta_linear = nn.Linear(num_relations, out_features=out_features)
-        self.dropout = nn.Dropout(p=dropout)
-
-    def forward(self, x, dataset_index_token):
-        dataset_index_token = dataset_index_token.to(dtype=torch.float32)
-        dataset_index_token = dataset_index_token.unsqueeze(-1)
-
-        gamma = self.gamma_linear(dataset_index_token)
-        beta = self.beta_linear(dataset_index_token)
-        gamma = gamma.unsqueeze(2).unsqueeze(3).expand_as(x)
-        beta = beta.unsqueeze(2).unsqueeze(3).expand_as(x)
-        conditioned_x = gamma * x + beta
-
-        conditioned_x = self.dropout(conditioned_x)
-
-        return conditioned_x
