@@ -48,10 +48,10 @@ import json
 import os
 import subprocess
 
-CPU_PER_TASK = 32
+CPU_PER_TASK = 12
 GPUS_PER_NODE = 1
 ENV = "lerobot"  # name of the conda environment
-TIME_PER_TASK = "03:59:00"
+TIME_PER_TASK = "05:59:00"
 REPO_NAME = "git@github.com:marinabar/lerobot.git"
 USER = os.environ["USER"]
 WORKDIR = os.getcwd()
@@ -67,19 +67,22 @@ output_dirs = [
 
 # Common arguments for both eval.py and train.pu scripts
 job_args = [
-    " hydra.job.name=train_test_pusht \
- hydra.run.dir=/admin/home/marina_barannikov/projects/lerobot/outputs/eval/test/minipusht \
- training.offline_steps=1000 ",
+    "hydra.job.name=aloha_embed_token \
+    hydra.run.dir=/fsx/marina_barannikov/outputs/multitask_08/aloha_embed_token \
+    policy=act_multitask \
+    env=aloha \
+    policy.use_vae=true \
+    wandb.enable=true",
 ]
 
 # Commit hashes to checkout the right code version
 commits = [
-    "main",
+    "b6336065a550858225fd7f490ab97e87cf6551e8",
 ]
 
 # Will be used for naming the sbatch jobs, logging
 job_names = [
-    "train_test_pusht",
+    "aloha_embed_token",
 ]
 
 
@@ -254,7 +257,7 @@ def run_job(
             cd {WORKDIR}/../lerobot_temp_{job_name}  && \
             git clone {REPO_NAME} && \
             cd lerobot && \
-            git reset --hard {commit} && \
+            git reset --hard {commit} && pip install . && \
             {command} && \
             cd ../.. && \
             rm -rf lerobot_temp_{job_name} && exit"',
@@ -307,8 +310,4 @@ if __name__ == "__main__":
     else:
         print("Running jobs from the parameters lists defined in the Python file.")
         # create_eval_job_from_dict(checkpoints, output_dirs, job_args, commits, job_names)
-        # create_train_job_from_dict(job_args, commits, job_names)
-        json_to_dict(
-            "/admin/home/marina_barannikov/projects/lerobot/param_jobs/train_slurm_jobs_2024-08-07_13-55-35.json",
-            "train",
-        )
+        create_train_job_from_dict(job_args, commits, job_names)
