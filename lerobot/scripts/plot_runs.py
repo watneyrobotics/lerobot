@@ -26,7 +26,6 @@ def plot_metrics(csv_file, base_model_name, plot_type, output_dir="outputs/plots
             f"{base_model_name}_1000 - eval/pc_success",
         ]
         y_label = "Success Rate"
-        title = "Success Rate Across Steps"
         mean_col = "mean_success"
         std_col = "std_success"
 
@@ -37,7 +36,6 @@ def plot_metrics(csv_file, base_model_name, plot_type, output_dir="outputs/plots
             f"{base_model_name}_84 - val/loss",
         ]
         y_label = "Validation Loss"
-        title = "Validation Loss Across Steps"
         mean_col = "mean_val_loss"
         std_col = "std_val_loss"
 
@@ -50,7 +48,6 @@ def plot_metrics(csv_file, base_model_name, plot_type, output_dir="outputs/plots
             f"{base_model_name}_84 - train/loss",
         ]
         y_label = "Training Loss"
-        title = "Training Loss Across Steps"
         mean_col = "mean_train_loss"
         std_col = "std_train_loss"
 
@@ -76,7 +73,6 @@ def plot_metrics(csv_file, base_model_name, plot_type, output_dir="outputs/plots
     # Add labels and title
     plt.xlabel("Step")
     plt.ylabel(y_label)
-    plt.title(title)
     plt.legend()
 
     # Ensure output directory exists
@@ -111,7 +107,6 @@ def plot_mse_loss(csv_file, base_model_name, output_dir="outputs/plots"):
     # Add labels and title
     plt.xlabel("Step")
     plt.ylabel("MSE Loss")
-    plt.title("MSE Loss Across Steps")
     plt.legend()
 
     # Ensure output directory exists
@@ -147,7 +142,6 @@ def plot_l1_loss(csv_file, base_model_name, output_dir="outputs/plots"):
     # Add labels and title
     plt.xlabel("Step")
     plt.ylabel("L1 Loss")
-    plt.title("L1 Loss Across Steps")
     plt.legend()
 
     # Ensure output directory exists
@@ -172,5 +166,6 @@ base_model_name = "compare_val_loss_transfer_cube"
 
 # plot_metrics(csv_file, base_model_name, "success_rate", output_dir=output_dir)
 
-csv = "dev/transfer_cube_results.csv"
-plot_l1_loss(csv, "transfer_cube")
+csv_t = "dev/transfer_cube_results.csv"
+csv_p = "dev/pusht_normalized_results.csv"
+plot_mse_loss(csv_p, "pusht_normalized")
