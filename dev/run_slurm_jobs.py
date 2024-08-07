@@ -56,15 +56,6 @@ REPO_NAME = "git@github.com:marinabar/lerobot.git"
 USER = os.environ["USER"]
 WORKDIR = os.getcwd()
 
-# Specific arguments for eval.py script
-checkpoints = [
-    "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_84/080000",
-]
-
-output_dirs = [
-    "/admin/home/marina_barannikov/projects/lerobot/outputs/eval/test",
-]
-
 # Common arguments for both eval.py and train.pu scripts
 job_args = [
     "hydra.job.name=aloha_embed_token \
@@ -85,6 +76,14 @@ job_names = [
     "aloha_embed_token",
 ]
 
+# Specific arguments for eval.py script
+checkpoints = [
+    "/fsx/marina_barannikov/outputs/train/compare_val_loss/pusht_84/080000",
+]
+
+output_dirs = [
+    "/admin/home/marina_barannikov/projects/lerobot/outputs/eval/test",
+]
 
 # Get the current time and date for logging
 current_time = datetime.datetime.now()
