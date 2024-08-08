@@ -125,7 +125,7 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
             actions = self.model(batch)[0][:, : self.config.n_action_steps]
 
             # TODO(rcadene): make _forward return output dictionary?
-            actions = self.unnormalize_outputs({"action": actions})["action"]
+            # actions = self.unnormalize_outputs({"action": actions})["action"]
 
             # `self.model.forward` returns a (batch_size, n_action_steps, action_dim) tensor, but the queue
             # effectively has shape (n_action_steps, batch_size, *), hence the transpose.
