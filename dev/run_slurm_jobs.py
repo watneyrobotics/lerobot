@@ -4,16 +4,16 @@ It can be used to send multiple jobs at once, with different parameters, and fro
 The script will create a temporary directory, clone the repository, checkout the right commit, run the script, and delete the temporary directory.
 
 To start, define the name of the conda environment to activate and the repository name to clone.
-The log directory for SLURM, defined in the sbatch command with --output, should be created before running the script.
+The log directory for SLURM, defined in the sbatch command with --output, should be created manually before running the script.
 
 The script can be run in three ways:
 
 1. Construct the jobs from the lists defined in the script.
 
-To do this, simply run the script without any arguments, after having defined parameters like the output directories, and config overrides.
-This will call create_eval_job_from_dict() function, which will submit the jobs to the cluster.
-To run the training jobs, call create_train_job_from_dict() function instead.
-To use create_train_job_from_dict(), you need to define the overrides for the training script.
+To do this, simply run the script without any arguments, after having defined parameters like the output directories, and config overrides below.
+This will call create_eval_job_from_list() function, which will submit the jobs to the cluster.
+To run the training jobs, call create_train_job_from_list() function instead.
+To use create_train_job_from_list(), you need to define the overrides for the training script.
 
 For example, add to job_args the following entry :
     hydra.job.name=test \
@@ -91,7 +91,7 @@ time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
 
 
 # Use this function to run the jobs from the lists defined above
-def create_eval_job_from_dict(checkpoints, output_dirs, eval_args, commits, job_names):
+def create_eval_job_from_list(checkpoints, output_dirs, eval_args, commits, job_names):
     assert (
         len(checkpoints) == len(output_dirs) == len(eval_args) == len(commits) == len(job_names)
     ), f"All lists must have the number of elements, but got {len(checkpoints)}, {len(output_dirs)}, {len(eval_args)}, {len(commits)}, {len(job_names)}."
@@ -119,7 +119,7 @@ def create_eval_job_from_dict(checkpoints, output_dirs, eval_args, commits, job_
     print(f"Saved sbatch commands to {json_filename}")
 
 
-def create_train_job_from_dict(train_args, commits, job_names):
+def create_train_job_from_list(train_args, commits, job_names):
     assert (
         len(train_args) == len(commits) == len(job_names)
     ), f"All lists must have the number of elements, but got {len(train_args)}, {len(commits)}, {len(job_names)}."
@@ -308,5 +308,5 @@ if __name__ == "__main__":
         run_job(None, None, None, None, None, None, custom_command)
     else:
         print("Running jobs from the parameters lists defined in the Python file.")
-        # create_eval_job_from_dict(checkpoints, output_dirs, job_args, commits, job_names)
-        create_train_job_from_dict(job_args, commits, job_names)
+        # create_eval_job_from_list(checkpoints, output_dirs, job_args, commits, job_names)
+        create_train_job_from_list(job_args, commits, job_names)
