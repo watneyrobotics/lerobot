@@ -37,8 +37,10 @@ from lerobot.common.utils.utils import get_global_random_state, set_global_rando
 
 import wandb
 
+
 def val_logger(average_loss, step):
     wandb.log({"val_loss": average_loss}, step=step)
+
 
 def log_output_dir(out_dir):
     logging.info(colored("Output dir:", "yellow", attrs=["bold"]) + f" {out_dir}")
