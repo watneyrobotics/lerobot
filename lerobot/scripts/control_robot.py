@@ -409,6 +409,13 @@ def record(
         # override fps using policy fps
         fps = hydra_cfg.env.fps
 
+        logging.info(
+            "Multiple datasets were provided. The following mapping was applied during training:"
+        )
+        for i, dataset_name in enumerate(hydra_cfg.dataset_repo_id):
+            logging.info(f"{dataset_name}: {i}")
+        dataset_index = int(input("Please provide the index of the dataset you want to use for evaluation: "))
+
     # Execute a few seconds without recording data, to give times
     # to the robot devices to connect and start synchronizing.
     timestamp = 0
@@ -497,6 +504,10 @@ def record(
                                 observation[name] = observation[name].permute(2, 0, 1).contiguous()
                             observation[name] = observation[name].unsqueeze(0)
                             observation[name] = observation[name].to(device)
+
+                        if "dataset_index" in hydra_cfg.policy.input_shapes:
+                            observation["dataset_index"] = torch.full((1,), dataset_index)
+                            observation["dataset_index"] = observation["dataset_index"].to(device)
 
                         # Compute the next action with the policy
                         # based on the current observation
