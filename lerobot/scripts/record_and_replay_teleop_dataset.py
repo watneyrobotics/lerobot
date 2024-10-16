@@ -29,6 +29,8 @@ import time
 import importlib
 import types
 import logging
+import warnings
+warnings.simplefilter("ignore", UserWarning)
 
 import gymnasium as gym
 import numpy as np
@@ -349,6 +351,7 @@ class EpisodeState():
         self.is_dropping_episode: bool | None = None
         self.is_concluding_episode: bool | None = None
         self.is_stopping: bool | None = None
+        self.action_queue = None
 
 
 def set_up_keyboard_teleop():
@@ -367,8 +370,11 @@ def set_up_keyboard_teleop():
     episode_state.is_dropping_episode = False
     episode_state.is_concluding_episode = False
     episode_state.is_stopping = False
+    from queue import Queue
+    episode_state.action_queue = Queue()
 
     def on_press(key):
+        print(f"Key pressed: {key}")
         if np.isnan(np.linalg.norm(episode_state.teleoperation_action)):
             # Assign good initial action
             # FIXME: This is robot-specific (Low-Cost Robot Arm)
@@ -380,6 +386,7 @@ def set_up_keyboard_teleop():
 
         # Y
         if key == Key.up:
+            print("UP")
             episode_state.teleoperation_action[1] += 0.01
         elif key == Key.down:
             episode_state.teleoperation_action[1] -= 0.01
@@ -407,10 +414,13 @@ def set_up_keyboard_teleop():
         elif key == Key.end:
             episode_state.is_concluding_episode = True
             episode_state.is_stopping = True
+        
+        episode_state.action_queue.put(episode_state.teleoperation_action.copy())
 
     listener = keyboard.Listener(on_press=on_press)
 
     def start_fn():
+        print("Starting listener")
         listener.start()
 
     def stop_fn():
@@ -548,14 +558,19 @@ env_kwargs = None
 def construct_and_set_up_env():
     lerobot.common.utils.utils.set_global_seed(args.random_seed)
     # Create the gym environment - check the kwargs in gym_real_world/gym_environment.py
+
+    #if args.sim_name == "gym_lowcostrobot":
+        # remove 
+
     env = gym.make(args.env_name,
-                   disable_env_checker=True,
-                   **env_kwargs
-                   )
+                    disable_env_checker=True,
+                    max_episode_steps=100,
+                    **env_kwargs
+        )
 
     return env
 
-
+from queue import Empty
 def get_next_action_in_episode(replay_helper: ReplayHelper | None):
     if replay_helper is not None:
         action = replay_helper.get_action_at_frame()
@@ -571,10 +586,11 @@ def get_next_action_in_episode(replay_helper: ReplayHelper | None):
 
         return [action, state_observation]
     else:
-        # Wait for first command to arrive.
-        while np.isnan(np.linalg.norm(episode_state.teleoperation_action)):
-            print(f"Waiting for first teleoperation command to arrive...")
-            time.sleep(1)
+        try:
+            action = episode_state.action_queue.get(timeout=0.1)
+            return [action, None]
+        except Empty:
+            pass
 
         return [episode_state.teleoperation_action, None]
 
@@ -585,7 +601,7 @@ def set_up_next_episode(env):
     output_helper.maybe_set_up_data_keys(observation)
 
     # Set up correctly-sized action.
-    episode_state.teleoperation_action = env.action_space.sample() * np.nan
+    episode_state.teleoperation_action = np.zeros(env.action_space.shape)  # Or another valid default action
 
 
 def run_sim_while_recording_dataset(*, replay_helper: ReplayHelper | None = None) -> LeRobotDataset:
@@ -594,9 +610,10 @@ def run_sim_while_recording_dataset(*, replay_helper: ReplayHelper | None = None
 
     episode_counter = 0
     env = construct_and_set_up_env()
-
     episode_state.is_stopping = False
     while not episode_state.is_stopping:
+
+        start_time = time.time()
         set_up_next_episode(env)
 
         print(f"Starting episode #{episode_counter}")
@@ -615,8 +632,10 @@ def run_sim_while_recording_dataset(*, replay_helper: ReplayHelper | None = None
 
             # Apply the next action (provided by teleop)
             observation, reward, terminted, truncated, info = env.step(
-                action=action)
-            t = info["timestamp"]
+                action=action) 
+            print(info.keys())
+            current_time = time.time() - start_time
+            t = current_time
             print("@t={}".format(t))
 
             if expected_state_observation is not None:
@@ -670,7 +689,12 @@ def teleop_robot_and_record_data() -> LeRobotDataset:
     # start teleoperation listener
     start_teleoperation_fn()
 
-    new_dataset = run_sim_while_recording_dataset()
+    try:
+        new_dataset = run_sim_while_recording_dataset()
+    except KeyboardInterrupt:
+        episode_state.is_stopping = True
+        stop_teleoperation_fn()
+        sys.exit()
 
     # stop teleoperation listener
     stop_teleoperation_fn()
@@ -713,6 +737,7 @@ def process_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--random-seed", type=int, default="0")
 
+    parser.add_argument("--sim-name", type=str, default="gym_drake_lca")
     parser.add_argument("--env-name", type=str, default="PickPlaceCube-v0")
     parser.add_argument("--teleop-method", type=str, default="keyboard")
     parser.add_argument("--num-workers", type=int, default=1)
@@ -740,7 +765,7 @@ if __name__ == "__main__":
     output_helper = OutputHelper(repo_id=args.repo_id)
     episode_state = EpisodeState()
 
-    module_name = "gym_drake_lca"
+    module_name = "gym_lowcostrobot"
     module_obj = import_module_containing_gym(module_name)
 
     print("Recording initial dataset w/ teleop")
