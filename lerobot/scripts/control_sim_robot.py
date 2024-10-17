@@ -81,6 +81,8 @@ import platform
 import shutil
 import time
 import traceback
+import warnings
+warnings.simplefilter("ignore", UserWarning)
 from functools import cache
 from pathlib import Path
 import gymnasium as gym
@@ -253,7 +255,7 @@ def create_rl_hf_dataset(data_dict):
 ########################################################################################
 
 
-def teleoperate(env, robot: Robot, teleop_time_s=None, **kwargs):    
+def teleoperate(env, robot: Robot, teleop_time_s=None, teleop_method='arm', **kwargs):    
     env = env()
     
     axis_directions = kwargs.get('axis_directions', [1])
@@ -290,6 +292,7 @@ def record(
     num_image_writers_per_camera=4,
     force_override=False,
     visualization_mode='viewer',
+    teleop_method='arm',
     **kwargs
 ):
 
@@ -323,6 +326,7 @@ def record(
     exit_early = False
     rerecord_episode = False
     stop_recording = False
+    command_queue = multiprocessing.Queue(1000)
 
     # Only import pynput if not in a headless environment
     if not is_headless():
@@ -342,6 +346,36 @@ def record(
                     print("Escape key pressed. Stopping data recording...")
                     stop_recording = True
                     exit_early = True
+
+                if teleop_method == 'keyboard':
+                    if np.isnan(np.linalg.norm(teleop_action)):
+                        # Assign good initial action
+                        # FIXME: This is robot-specific (Low-Cost Robot Arm)
+                        teleop_action[0][0] = 0.0
+                        teleop_action[0][1] = 0.14
+                        teleop_action[0][2] = 0.17
+                        teleop_action[0][3] = 0.0
+
+                    assert np.isfinite(np.linalg.norm(teleop_action))
+                    if key == keyboard.KeyCode.from_char('w'):
+                        teleop_action[0][1] += 0.1  # Move forward
+                    elif key == keyboard.KeyCode.from_char('s'):
+                        teleop_action[0][1] -= 0.1  # Move backward
+                    elif key == keyboard.KeyCode.from_char('a'):
+                        teleop_action[0][0] -= 0.1  # Move left
+                    elif key == keyboard.KeyCode.from_char('d'):
+                        teleop_action[0][0] += 0.1  # Move right
+                    elif key == keyboard.KeyCode.from_char('q'):
+                        teleop_action[0][2] += 0.1  # Move up
+                    elif key == keyboard.KeyCode.from_char('e'):
+                        teleop_action[0][2] -= 0.1  # Move down
+                    elif key == keyboard.KeyCode.from_char('r'):
+                        teleop_action[0][3] += 0.1  # Open gripper
+                    elif key == keyboard.KeyCode.from_char('f'):
+                        teleop_action[0][3] -= 0.1  # Close gripper
+                    
+                    command_queue.put(teleop_action.copy())
+
             except Exception as e:
                 print(f"Error handling key press: {e}")
 
@@ -357,12 +391,17 @@ def record(
     num_image_writers = num_image_writers_per_camera * 2 ###############
     num_image_writers = max(num_image_writers, 1)
 
-    # Parameters for the control
-    axis_directions = kwargs.get('axis_directions', [1])
-    offsets = kwargs.get('offsets', [0])
-    command_queue = multiprocessing.Queue(1000)
-    stop_reading_leader = multiprocessing.Value('i', 0)
-    read_leader = multiprocessing.Process(target=read_commands_from_leader, args=(robot, command_queue, fps, axis_directions, offsets, stop_reading_leader))
+    if teleop_method == 'arm':
+        print('Using arm teleoperation')
+        # Parameters for the control
+        axis_directions = kwargs.get('axis_directions', [1])
+        offsets = kwargs.get('offsets', [0])
+        stop_reading_leader = multiprocessing.Value('i', 0)
+        read_leader = multiprocessing.Process(target=read_commands_from_leader, args=(robot, command_queue, fps, axis_directions, offsets, stop_reading_leader))
+    else:
+        print('Using keyboard teleoperation')
+        print('Press "w" to move forward, "s" to move backward, "a" to move left, "d" to move right, "q" to move up, "e" to move down, "r" to open gripper, "f" to close gripper')
+        print('The action space of this environment is of size {}'.format(env.action_space.shape))
     if not is_headless() and visualization_mode=='observations':
         observations_queue = multiprocessing.Queue(1000)
         show_images = multiprocessing.Process(target=show_image_observations, args=(observations_queue, ))
@@ -381,9 +420,15 @@ def record(
             observation, info = env.reset()
             #with stop_reading_leader.get_lock(): 
                 #stop_reading_leader.Value = 0
-            read_leader.start()
+            if teleop_method == 'arm':
+                read_leader.start()
+            else :
+                teleop_action = np.zeros(env.action_space.shape)
             while timestamp < episode_time_s:
-                action = command_queue.get()
+                try:
+                    action = command_queue.get(timeout=0.1)
+                except multiprocessing.queues.Empty:
+                    action = np.zeros(env.action_space.shape)
                 image_keys = [key for key in observation if "image" in key]
                 state_keys = [key for key in observation if "image" not in key]
                 for key in image_keys:
@@ -422,10 +467,12 @@ def record(
             # TODO (michel_aractinig): temp fix until I figure out the problem with shared memory
             # stop_reading_leader is blocking
             command_queue.close()
-            read_leader.terminate() 
+            if teleop_method == 'arm':
+                read_leader.terminate() 
 
             command_queue = multiprocessing.Queue(1000)
-            read_leader = multiprocessing.Process(target=read_commands_from_leader, args=(robot, command_queue, fps, axis_directions, offsets, stop_reading_leader))
+            if teleop_method == 'arm':
+                read_leader = multiprocessing.Process(target=read_commands_from_leader, args=(robot, command_queue, fps, axis_directions, offsets, stop_reading_leader))
 
             timestamp = 0
 
@@ -627,10 +674,16 @@ if __name__ == "__main__":
     parser_teleop.add_argument(
         "--fps", type=none_or_int, default=None, help="Frames per second (set to None to disable)"
     )
+    parser_teleop.add_argument(
+        "--teleop-method", type=str, default='arm', choices=["keyboard", "arm"], help="Method to teleoperate the robot in the environment. Options are 'arm' or 'keyboard'."
+    )
 
     parser_record = subparsers.add_parser("record", parents=[base_parser])
     parser_record.add_argument(
         "--fps", type=none_or_int, default=None, help="Frames per second (set to None to disable)"
+    )
+    parser_record.add_argument(
+        "--teleop-method", type=str, default='arm', choices=["keyboard", "arm"], help="Method to teleoperate the robot in the environment. Options are 'arm' or 'keyboard'."
     )
     parser_record.add_argument(
         "--root",
