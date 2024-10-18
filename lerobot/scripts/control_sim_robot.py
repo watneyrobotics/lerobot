@@ -6,26 +6,23 @@ Useful to record a dataset, replay a recorded episode and record an evaluation d
 Examples of usage:
 
 
-- Unlimited teleoperation at highest frequency (~200 Hz is expected), to exit with CTRL+C:
-```bash
-python lerobot/scripts/control_robot.py teleoperate
-
-# Remove the cameras from the robot definition. They are not used in 'teleoperate' anyway.
-python lerobot/scripts/control_robot.py teleoperate --robot-overrides '~cameras'
-```
-
-- Unlimited teleoperation at a limited frequency of 30 Hz, to simulate data recording frequency:
+- Unlimited teleoperation at a limited frequency of 30 Hz, to simulate data recording frequency.
+  You can modify this value depending on how fast your simulation can run:
 ```bash
 python lerobot/scripts/control_robot.py teleoperate \
-    --fps 30
+    --fps 30 \
+    --robot-path lerobot/configs/robot/your_robot_config.yaml \
+    --sim-config lerobot/configs/env/your_sim_config.yaml
 ```
 
 - Record one episode in order to test replay:
 ```bash
-python lerobot/scripts/control_robot.py record \
+python lerobot/scripts/control_sim_robot.py record \
+    --robot-path lerobot/configs/robot/your_robot_config.yaml \
+    --sim-config lerobot/configs/env/your_sim_config.yaml \
     --fps 30 \
     --root tmp/data \
-    --repo-id $USER/koch_test \
+    --repo-id $USER/robot_sim_test \
     --num-episodes 1 \
     --run-compute-stats 0
 ```
@@ -34,26 +31,29 @@ python lerobot/scripts/control_robot.py record \
 ```bash
 python lerobot/scripts/visualize_dataset.py \
     --root tmp/data \
-    --repo-id $USER/koch_test \
+    --repo-id $USER/robot_sim_test \
     --episode-index 0
 ```
 
 - Replay this test episode:
 ```bash
-python lerobot/scripts/control_robot.py replay \
+python lerobot/scripts/control_sim_robot.py replay \
+    --sim-config lerobot/configs/env/your_sim_config.yaml \
     --fps 30 \
     --root tmp/data \
     --repo-id $USER/koch_test \
-    --episode 0
+    --episodes 0
 ```
 
 - Record a full dataset in order to train a policy,
 30 seconds of recording for each episode, and 10 seconds to reset the environment in between episodes:
 ```bash
-python lerobot/scripts/control_robot.py record \
+python lerobot/scripts/control_sim_robot.py record \
+    --robot-path lerobot/configs/robot/your_robot_config.yaml \
+    --sim-config lerobot/configs/env/your_sim_config.yaml \
     --fps 30 \
     --root data \
-    --repo-id $USER/koch_pick_place_lego \
+    --repo-id $USER/robot_sim_test \
     --num-episodes 50 \
     --episode-time-s 30 \
     --reset-time-s 10
@@ -117,8 +117,6 @@ from lerobot.scripts.push_dataset_to_hub import (
 ########################################################################################
 # Utilities
 ########################################################################################
-
-
 def say(text, blocking=False):
     # Check if mac, linux, or windows.
     if platform.system() == "Darwin":
@@ -182,6 +180,12 @@ def is_headless():
         print() 
         return True
 
+def init_read_leader(robot, fps, **kwargs):
+    axis_directions = kwargs.get('axis_directions', [1])
+    offsets = kwargs.get('offsets', [0])
+    command_queue = multiprocessing.Queue(1000)
+    read_leader = multiprocessing.Process(target=read_commands_from_leader, args=(robot, command_queue, fps, axis_directions, offsets))
+    return read_leader, command_queue
 
 def read_commands_from_leader(robot: Robot, queue: multiprocessing.Queue, fps: int, axis_directions: list, offsets: list, stop_flag=None):
     if not robot.is_connected:
@@ -257,15 +261,9 @@ def create_rl_hf_dataset(data_dict):
 
 def teleoperate(env, robot: Robot, teleop_time_s=None, teleop_method='arm', **kwargs):    
     env = env()
-    
-    axis_directions = kwargs.get('axis_directions', [1])
-    offsets = kwargs.get('offsets', [0])
-    fps = kwargs.get('fps', None)
-    command_queue = multiprocessing.Queue(1000)
-    read_leader = multiprocessing.Process(target=read_commands_from_leader, args=(robot, command_queue, fps, axis_directions, offsets))
-
     env.reset()
-
+    
+    read_leader, command_queue = init_read_leader(robot, **kwargs)
     start_teleop_t = time.perf_counter() 
     read_leader.start()
     while True:
@@ -291,7 +289,7 @@ def record(
     tags=None,
     num_image_writers_per_camera=4,
     force_override=False,
-    visualization_mode='viewer',
+    visualize_images=0,
     teleop_method='arm',
     **kwargs
 ):
@@ -326,8 +324,6 @@ def record(
     exit_early = False
     rerecord_episode = False
     stop_recording = False
-    command_queue = multiprocessing.Queue(1000)
-
     # Only import pynput if not in a headless environment
     if not is_headless():
         from pynput import keyboard
@@ -392,17 +388,14 @@ def record(
     num_image_writers = max(num_image_writers, 1)
 
     if teleop_method == 'arm':
-        print('Using arm teleoperation')
-        # Parameters for the control
-        axis_directions = kwargs.get('axis_directions', [1])
-        offsets = kwargs.get('offsets', [0])
-        stop_reading_leader = multiprocessing.Value('i', 0)
-        read_leader = multiprocessing.Process(target=read_commands_from_leader, args=(robot, command_queue, fps, axis_directions, offsets, stop_reading_leader))
+        print('Using leader arm to teleoperate the robot')
+        read_leader, command_queue = init_read_leader(robot, fps, **kwargs)
     else:
-        print('Using keyboard teleoperation')
+        print('Using keyboard to teleoperate the robot')
         print('Press "w" to move forward, "s" to move backward, "a" to move left, "d" to move right, "q" to move up, "e" to move down, "r" to open gripper, "f" to close gripper')
-        print('The action space of this environment is of size {}'.format(env.action_space.shape))
-    if not is_headless() and visualization_mode=='observations':
+        command_queue = multiprocessing.Queue(1000)
+
+    if not is_headless() and visualize_images:
         observations_queue = multiprocessing.Queue(1000)
         show_images = multiprocessing.Process(target=show_image_observations, args=(observations_queue, ))
         show_images.start()
@@ -438,7 +431,7 @@ def record(
                             save_image, observation[key].squeeze(0), str_key, frame_index, episode_index, videos_dir)
                     ]
 
-                if not is_headless() and visualization_mode=='observations':
+                if not is_headless() and visualize_images:
                     observations_queue.put(observation)
           
                 state_obs = []
@@ -457,7 +450,6 @@ def record(
 
                 timestamp = time.perf_counter() - start_episode_t
                 if exit_early:
-                    # If the episode is successful then break
                     exit_early = False
                     break
 
@@ -469,10 +461,9 @@ def record(
             command_queue.close()
             if teleop_method == 'arm':
                 read_leader.terminate() 
-
-            command_queue = multiprocessing.Queue(1000)
-            if teleop_method == 'arm':
-                read_leader = multiprocessing.Process(target=read_commands_from_leader, args=(robot, command_queue, fps, axis_directions, offsets, stop_reading_leader))
+                read_leader, command_queue = init_read_leader(robot, fps, **kwargs)
+            else:
+                command_queue = multiprocessing.Queue(1000)    
 
             timestamp = 0
 
@@ -541,7 +532,7 @@ def record(
                     concurrent.futures.as_completed(futures), total=len(futures), desc="Writting images"
                 ):
                     pass
-                if not is_headless() and visualization_mode=='rgb_array':
+                if not is_headless() and visualize_images:
                     show_images.terminate()
                     observations_queue.close()
                 break
@@ -627,27 +618,34 @@ def record(
     return lerobot_dataset
 
 
-def replay(robot: Robot, episode: int, fps: int | None = None, root="data", repo_id="lerobot/debug"):
-    # TODO(rcadene): Add option to record logs
+def replay(env, episodes: list, fps: int | None = None, root="data", repo_id="lerobot/debug"):
+
+    env = env()
     local_dir = Path(root) / repo_id
     if not local_dir.exists():
         raise ValueError(local_dir)
 
     dataset = LeRobotDataset(repo_id, root=root)
     items = dataset.hf_dataset.select_columns("action")
-    from_idx = dataset.episode_data_index["from"][episode].item()
-    to_idx = dataset.episode_data_index["to"][episode].item()
+    for episode in episodes:
+        env.reset()
+        from_idx = dataset.episode_data_index["from"][episode].item()
+        to_idx = dataset.episode_data_index["to"][episode].item()
+    
+        logging.info("Replaying episode")
+        say("Replaying episode", blocking=True)
+        for idx in range(from_idx, to_idx):
+            start_episode_t = time.perf_counter()
+    
+            action = items[idx]["action"]
+    
+            env.step(action.unsqueeze(0).numpy())
+    
+            dt_s = time.perf_counter() - start_episode_t
+            busy_wait(1 / fps - dt_s)
 
-    logging.info("Replaying episode")
-    say("Replaying episode", blocking=True)
-    for idx in range(from_idx, to_idx):
-        start_episode_t = time.perf_counter()
-
-        action = items[idx]["action"]
-        robot.send_action(action)
-
-        dt_s = time.perf_counter() - start_episode_t
-        busy_wait(1 / fps - dt_s)
+        # wait before playing next episode
+        busy_wait(5)
 
 
 
@@ -668,7 +666,6 @@ if __name__ == "__main__":
         "--sim-config",
         help="Path to a yaml config you want to use for initializing a sim environment based on gym ",
         )
-
 
     parser_teleop = subparsers.add_parser("teleoperate", parents=[base_parser])
     parser_teleop.add_argument(
@@ -745,11 +742,10 @@ if __name__ == "__main__":
         help="By default, data recording is resumed. When set to 1, delete the local directory and start data recording from scratch.",
     )
     parser_record.add_argument(
-        "--visualization-mode",
-        type=str,
-        default='viewer',
-        choices=['viewer', 'observations'],
-        help="By default, data recording is resumed. When set to 1, delete the local directory and start data recording from scratch.",
+        "--visualize-images",
+        type=int,
+        default=0,
+        help="Visualize image observations with opencv.",
     )
 
     parser_replay = subparsers.add_parser("replay", parents=[base_parser])
@@ -768,7 +764,7 @@ if __name__ == "__main__":
         default="lerobot/test",
         help="Dataset identifier. By convention it should match '{hf_username}/{dataset_name}' (e.g. `lerobot/test`).",
     )
-    parser_replay.add_argument("--episode", type=int, default=0, help="Index of the episode to replay.")
+    parser_replay.add_argument("--episodes", nargs='+', type=int, default=[0], help="Indices of the episodes to replay.")
 
     args = parser.parse_args()
 
@@ -784,15 +780,16 @@ if __name__ == "__main__":
 
     # make gym env
     env_cfg = init_hydra_config(env_config_path)
-    env_cfg.env.gym.render_mode = 'human' if args.visualization_mode=='viewer' else 'rgb_array'    
     env_fn = lambda: make_env(env_cfg, n_envs=1)
     
-    # make robot
-    robot_overrides = ['~cameras', '~follower_arms']
-    robot_cfg = init_hydra_config(robot_path, robot_overrides)
-    robot = make_robot(robot_cfg)
+    robot = None
+    if control_mode != 'replay':
+        # make robot
+        robot_overrides = ['~cameras', '~follower_arms']
+        robot_cfg = init_hydra_config(robot_path, robot_overrides)
+        robot = make_robot(robot_cfg)
     
-    kwargs.update(env_cfg.calibration)
+        kwargs.update(env_cfg.calibration)
 
     if control_mode == "teleoperate":
         teleoperate(env_fn, robot, **kwargs)
@@ -801,12 +798,12 @@ if __name__ == "__main__":
         record(env_fn, robot, **kwargs)
 
     elif control_mode == "replay":
-        replay(robot, **kwargs)
+        replay(env_fn, **kwargs)
 
     else:
         raise ValueError(f"Invalid control mode: '{control_mode}', only valid modes are teleoperate, record and replay." )
 
-    if robot.is_connected:
+    if robot and robot.is_connected:
         # Disconnect manually to avoid a "Core dump" during process
         # termination due to camera threads not properly exiting.
         robot.disconnect()
