@@ -318,9 +318,11 @@ def record(
             "Headless environment detected. On-screen cameras display and keyboard inputs will not be available."
         )
 
+    final_joint_positions = np.array([-0.00306796,  0.71811652,  1.41732051,  -0.15493206,   0.09203885, -0.75471855])
     # Allow to exit early while recording an episode or resetting the environment,
     # by tapping the right arrow key '->'. This might require a sudo permission
     # to allow your terminal to monitor keyboard events.
+    set_final_joint_positions = False
     exit_early = False
     rerecord_episode = False
     stop_recording = False
@@ -329,7 +331,7 @@ def record(
         from pynput import keyboard
 
         def on_press(key):
-            nonlocal exit_early, rerecord_episode, stop_recording
+            nonlocal exit_early, rerecord_episode, stop_recording, set_final_joint_positions
             try:
                 if key == keyboard.Key.right:
                     print("Right arrow key pressed. Exiting loop...")
@@ -342,6 +344,9 @@ def record(
                     print("Escape key pressed. Stopping data recording...")
                     stop_recording = True
                     exit_early = True
+                elif key == keyboard.Key.down:
+                    print("Down arrow key pressed. Setting end joint positions...")
+                    set_final_joint_positions = True
 
                 if teleop_method == 'keyboard':
                     if np.isnan(np.linalg.norm(teleop_action)):
@@ -411,6 +416,7 @@ def record(
             timestamp = 0
             start_episode_t = time.perf_counter()
             observation, info = env.reset()
+            set_final_joint_positions = False
             #with stop_reading_leader.get_lock(): 
                 #stop_reading_leader.Value = 0
             if teleop_method == 'arm':
@@ -422,6 +428,9 @@ def record(
                     action = command_queue.get(timeout=0.1)
                 except multiprocessing.queues.Empty:
                     action = np.zeros(env.action_space.shape)
+                if set_final_joint_positions:
+                    action = final_joint_positions
+                print('Final position was set ? ', set_final_joint_positions)
                 image_keys = [key for key in observation if "image" in key]
                 state_keys = [key for key in observation if "image" not in key]
                 for key in image_keys:
@@ -449,6 +458,7 @@ def record(
                 frame_index += 1
 
                 timestamp = time.perf_counter() - start_episode_t
+
                 if exit_early:
                     exit_early = False
                     break
