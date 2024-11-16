@@ -321,15 +321,23 @@ class ACT(nn.Module):
 
         # Backbone for image feature extraction.
         if self.use_images:
-            backbone_model = getattr(torchvision.models, config.vision_backbone)(
-                replace_stride_with_dilation=[False, False, config.replace_final_stride_with_dilation],
-                weights=config.pretrained_backbone_weights,
-                norm_layer=FrozenBatchNorm2d,
-            )
-            # Note: The assumption here is that we are using a ResNet model (and hence layer4 is the final
-            # feature map).
-            # Note: The forward method of this returns a dict: {"feature_map": output}.
-            self.backbone = IntermediateLayerGetter(backbone_model, return_layers={"layer4": "feature_map"})
+            self.backbone = {}
+            # create a backbone model for each image key in the batch
+            camera_index = 0
+            for image_key in config.input_shapes:
+                if image_key.startswith("observation.image"):
+                    backbone_model = getattr(torchvision.models, config.vision_backbone)(
+                        replace_stride_with_dilation=[False, False, config.replace_final_stride_with_dilation],
+                        weights=config.pretrained_backbone_weights,
+                        norm_layer=FrozenBatchNorm2d,
+                    )
+                    # Note: The assumption here is that we are using a ResNet model (and hence layer4 is the final
+                    # feature map).
+                    # Note: The forward method of this returns a dict: {"feature_map": output}.
+                    self.backbone[camera_index] = IntermediateLayerGetter(
+                        backbone_model, return_layers={"layer4": "feature_map"}
+                    )
+                    camera_index += 1
 
         # Transformer (acts as VAE decoder when training with the variational objective).
         self.encoder = ACTEncoder(config)
@@ -477,7 +485,8 @@ class ACT(nn.Module):
             all_cam_pos_embeds = []
 
             for cam_index in range(batch["observation.images"].shape[-4]):
-                cam_features = self.backbone(batch["observation.images"][:, cam_index])["feature_map"]
+                # TODO: finish this to handle multiple cameras
+                cam_features = self.backbone[cam_index](batch["observation.images"][:, cam_index])["feature_map"]
                 # TODO(rcadene, alexander-soare): remove call to `.to` to speedup forward ; precompute and use
                 # buffer
                 cam_pos_embed = self.encoder_cam_feat_pos_embed(cam_features).to(dtype=cam_features.dtype)
