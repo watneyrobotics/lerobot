@@ -23,15 +23,15 @@
 </div>
 
 <h2 align="center">
-    <p><a href="https://github.com/huggingface/lerobot/blob/main/examples/7_get_started_with_real_robot.md">Hot new tutorial: Getting started with real-world robots</a></p>
+    <p><a href="https://github.com/huggingface/lerobot/blob/main/examples/10_use_so100.md">New robot in town: SO-100</a></p>
 </h2>
 
 <div align="center">
-    <img src="media/tutorial/koch_v1_1_leader_follower.webp?raw=true" alt="Koch v1.1 leader and follower arms" title="Koch v1.1 leader and follower arms" width="50%">
-    <p>We just dropped an in-depth tutorial on how to build your own robot!</p>
+    <img src="media/so100/leader_follower.webp?raw=true" alt="SO-100 leader and follower arms" title="SO-100 leader and follower arms" width="50%">
+    <p>We just added a new tutorial on how to build a more affordable robot, at the price of $110 per arm!</p>
     <p>Teach it new skills by showing it a few moves with just a laptop.</p>
     <p>Then watch your homemade robot act autonomously 🤯</p>
-    <p>For more info, see <a href="https://x.com/RemiCadene/status/1825455895561859185">our thread on X</a> or <a href="https://github.com/huggingface/lerobot/blob/main/examples/7_get_started_with_real_robot.md">our tutorial page</a>.</p>
+    <p>Follow the link to the <a href="https://github.com/huggingface/lerobot/blob/main/examples/10_use_so100.md">full tutorial for SO-100</a>.</p>
 </div>
 
 <br/>
@@ -55,9 +55,9 @@
 
 <table>
   <tr>
-    <td><img src="http://remicadene.com/assets/gif/aloha_act.gif" width="100%" alt="ACT policy on ALOHA env"/></td>
-    <td><img src="http://remicadene.com/assets/gif/simxarm_tdmpc.gif" width="100%" alt="TDMPC policy on SimXArm env"/></td>
-    <td><img src="http://remicadene.com/assets/gif/pusht_diffusion.gif" width="100%" alt="Diffusion policy on PushT env"/></td>
+    <td><img src="media/gym/aloha_act.gif" width="100%" alt="ACT policy on ALOHA env"/></td>
+    <td><img src="media/gym/simxarm_tdmpc.gif" width="100%" alt="TDMPC policy on SimXArm env"/></td>
+    <td><img src="media/gym/pusht_diffusion.gif" width="100%" alt="Diffusion policy on PushT env"/></td>
   </tr>
   <tr>
     <td align="center">ACT policy on ALOHA env</td>
@@ -144,7 +144,7 @@ wandb login
 
 ### Visualize datasets
 
-Check out [example 1](./examples/1_load_lerobot_dataset.py) that illustrates how to use our dataset class which automatically download data from the Hugging Face hub.
+Check out [example 1](./examples/1_load_lerobot_dataset.py) that illustrates how to use our dataset class which automatically downloads data from the Hugging Face hub.
 
 You can also locally visualize episodes from a dataset on the hub by executing our script from the command line:
 ```bash
@@ -283,13 +283,20 @@ checkpoints
 │   └── training_state.pth  # optimizer/scheduler/rng state and training step
 ```
 
+To resume training from a checkpoint, you can add these to the `train.py` python command:
+```bash
+    hydra.run.dir=your/original/experiment/dir resume=true
+```
+
+It will load the pretrained model, optimizer and scheduler states for training. For more information please see our tutorial on training resumption [here](https://github.com/huggingface/lerobot/blob/main/examples/5_resume_training.md).
+
 To use wandb for logging training and evaluation curves, make sure you've run `wandb login` as a one-time setup step. Then, when running the training command above, enable WandB in the configuration by adding:
 
 ```bash
     wandb.enable=true
 ```
 
-A link to the wandb logs for the run will also show up in yellow in your terminal. Here is an example of what they look like in your browser:
+A link to the wandb logs for the run will also show up in yellow in your terminal. Here is an example of what they look like in your browser. Please also check [here](https://github.com/huggingface/lerobot/blob/main/examples/4_train_policy_with_script.md#typical-logs-and-metrics) for the explanation of some commonly used metrics in logs.
 
 ![](media/wandb.png)
 

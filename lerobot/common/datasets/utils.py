@@ -32,7 +32,7 @@ DATASET_CARD_TEMPLATE = """
 ---
 # Metadata will go there
 ---
-This dataset was created using [🤗 LeRobot](https://github.com/huggingface/lerobot).
+This dataset was created using [LeRobot](https://github.com/huggingface/lerobot).
 
 """
 
@@ -80,6 +80,11 @@ def hf_transform_to_torch(items_dict: dict[torch.Tensor | None]):
         if isinstance(first_item, PILImage.Image):
             to_tensor = transforms.ToTensor()
             items_dict[key] = [to_tensor(img) for img in items_dict[key]]
+        elif isinstance(first_item, str):
+            # TODO (michel-aractingi): add str2embedding via language tokenizer
+            # For now we leave this part up to the user to choose how to address
+            # language conditioned tasks
+            pass
         elif isinstance(first_item, dict) and "path" in first_item and "timestamp" in first_item:
             # video frame will be processed downstream
             pass

@@ -14,7 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import os
 import os.path as osp
+import platform
 import random
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -25,6 +27,18 @@ import hydra
 import numpy as np
 import torch
 from omegaconf import DictConfig
+
+
+def none_or_int(value):
+    if value == "None":
+        return None
+    return int(value)
+
+
+def inside_slurm():
+    """Check whether the python process was launched through slurm"""
+    # TODO(rcadene): return False for interactive mode `--pty bash`
+    return "SLURM_JOB_ID" in os.environ
 
 
 def get_safe_torch_device(cfg_device: str, log: bool = False) -> torch.device:
@@ -163,7 +177,6 @@ def init_hydra_config(config_path: str, overrides: list[str] | None = None) -> D
         version_base="1.2",
     )
     cfg = hydra.compose(Path(config_path).stem, overrides)
-
     return cfg
 
 
@@ -182,3 +195,30 @@ def print_cuda_memory_usage():
 
 def capture_timestamp_utc():
     return datetime.now(timezone.utc)
+
+
+def say(text, blocking=False):
+    # Check if mac, linux, or windows.
+    if platform.system() == "Darwin":
+        cmd = f'say "{text}"'
+        if not blocking:
+            cmd += " &"
+    elif platform.system() == "Linux":
+        cmd = f'spd-say "{text}"'
+        if blocking:
+            cmd += "  --wait"
+    elif platform.system() == "Windows":
+        # TODO(rcadene): Make blocking option work for Windows
+        cmd = (
+            'PowerShell -Command "Add-Type -AssemblyName System.Speech; '
+            f"(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{text}')\""
+        )
+
+    os.system(cmd)
+
+
+def log_say(text, play_sounds, blocking=False):
+    logging.info(text)
+
+    if play_sounds:
+        say(text, blocking)
