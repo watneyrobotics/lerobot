@@ -279,8 +279,7 @@ class ACT(nn.Module):
               │ VAE     │ │     │ │       │  └───────┘  │
               │ encoder │ │     │ │Transf.│             │
               │         │ │     │ │encoder│             │
-              └───▲─────┘ │     │ │       │             │
-                  │       │     │ └▲──▲─▲─┘             │
+              └───▲─────┘ │     │ └▲──▲─▲─┘             │
                   │       │     │  │  │ │               │
                 inputs    └─────┼──┘  │ image emb.      │
                                 │    state emb.         │
@@ -321,12 +320,13 @@ class ACT(nn.Module):
 
         # Backbone for image feature extraction.
         if self.use_images:
-            self.backbone = {}
+            self.backbone = nn.ModuleDict()
+            backbone_models = nn.ModuleDict()
             # create a backbone model for each image key in the batch
             camera_index = 0
             for image_key in config.input_shapes:
                 if image_key.startswith("observation.image"):
-                    backbone_model = getattr(torchvision.models, config.vision_backbone)(
+                    backbone_models[str(camera_index)] = getattr(torchvision.models, config.vision_backbone)(
                         replace_stride_with_dilation=[False, False, config.replace_final_stride_with_dilation],
                         weights=config.pretrained_backbone_weights,
                         norm_layer=FrozenBatchNorm2d,
@@ -334,8 +334,8 @@ class ACT(nn.Module):
                     # Note: The assumption here is that we are using a ResNet model (and hence layer4 is the final
                     # feature map).
                     # Note: The forward method of this returns a dict: {"feature_map": output}.
-                    self.backbone[camera_index] = IntermediateLayerGetter(
-                        backbone_model, return_layers={"layer4": "feature_map"}
+                    self.backbone[str(camera_index)] = IntermediateLayerGetter(
+                        backbone_models[str(camera_index)], return_layers={"layer4": "feature_map"}
                     )
                     camera_index += 1
 
@@ -354,10 +354,12 @@ class ACT(nn.Module):
                 config.input_shapes["observation.environment_state"][0], config.dim_model
             )
         self.encoder_latent_input_proj = nn.Linear(config.latent_dim, config.dim_model)
+        self.encoder_img_feat_input_proj = nn.ModuleDict()
         if self.use_images:
-            self.encoder_img_feat_input_proj = nn.Conv2d(
-                backbone_model.fc.in_features, config.dim_model, kernel_size=1
-            )
+            for camera_index in range(len(backbone_models)):
+                self.encoder_img_feat_input_proj[str(camera_index)] = nn.Conv2d(
+                    backbone_models[str(camera_index)].fc.in_features, config.dim_model, kernel_size=1
+                )
         # Transformer encoder positional embeddings.
         n_1d_tokens = 1  # for the latent
         if self.use_robot_state:
@@ -365,8 +367,10 @@ class ACT(nn.Module):
         if self.use_env_state:
             n_1d_tokens += 1
         self.encoder_1d_feature_pos_embed = nn.Embedding(n_1d_tokens, config.dim_model)
+        self.encoder_cam_feat_pos_embed = nn.ModuleDict()
         if self.use_images:
-            self.encoder_cam_feat_pos_embed = ACTSinusoidalPositionEmbedding2d(config.dim_model // 2)
+            for cam_index in range(len(backbone_models)):
+                self.encoder_cam_feat_pos_embed[str(cam_index)] = ACTSinusoidalPositionEmbedding2d(config.dim_model // 2)
 
         # Transformer decoder.
         # Learnable positional embedding for the transformer's decoder (in the style of DETR object queries).
@@ -486,11 +490,11 @@ class ACT(nn.Module):
 
             for cam_index in range(batch["observation.images"].shape[-4]):
                 # TODO: finish this to handle multiple cameras
-                cam_features = self.backbone[cam_index](batch["observation.images"][:, cam_index])["feature_map"]
+                cam_features = self.backbone[str(cam_index)](batch["observation.images"][:, cam_index])["feature_map"]
                 # TODO(rcadene, alexander-soare): remove call to `.to` to speedup forward ; precompute and use
                 # buffer
-                cam_pos_embed = self.encoder_cam_feat_pos_embed(cam_features).to(dtype=cam_features.dtype)
-                cam_features = self.encoder_img_feat_input_proj(cam_features)  # (B, C, h, w)
+                cam_pos_embed = self.encoder_cam_feat_pos_embed[str(cam_index)](cam_features).to(dtype=cam_features.dtype)
+                cam_features = self.encoder_img_feat_input_proj[str(cam_index)](cam_features)  # (B, C, h, w)
                 all_cam_features.append(cam_features)
                 all_cam_pos_embeds.append(cam_pos_embed)
             # Concatenate camera observation feature maps and positional embeddings along the width dimension,
