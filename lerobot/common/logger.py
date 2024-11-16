@@ -101,7 +101,7 @@ class Logger:
         project = cfg.get("wandb", {}).get("project")
         entity = cfg.get("wandb", {}).get("entity")
         enable_wandb = cfg.get("wandb", {}).get("enable", False)
-        run_offline = not enable_wandb or not project
+        run_offline = not enable_wandb #or not project
         if run_offline:
             logging.info(colored("Logs will be saved locally.", "yellow", attrs=["bold"]))
             self._wandb = None
