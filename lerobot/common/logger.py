@@ -101,7 +101,7 @@ class Logger:
         project = cfg.get("wandb", {}).get("project")
         entity = cfg.get("wandb", {}).get("entity")
         enable_wandb = cfg.get("wandb", {}).get("enable", False)
-        run_offline = not enable_wandb or not project
+        run_offline = not enable_wandb #or not project
         if run_offline:
             logging.info(colored("Logs will be saved locally.", "yellow", attrs=["bold"]))
             self._wandb = None
@@ -229,7 +229,6 @@ class Logger:
 
     def log_dict(self, d, step, mode="train"):
         assert mode in {"train", "eval"}
-        # TODO(alexander-soare): Add local text log.
         if self._wandb is not None:
             for k, v in d.items():
                 if not isinstance(v, (int, float, str)):
