@@ -160,6 +160,18 @@ class ACTPolicy(
 
         return loss_dict
 
+    @torch.no_grad()
+    def inference(self, state:Tensor, images:Tensor) -> Tensor:
+        batch = {key: images[:,i] for i,key in enumerate(self.expected_image_keys)}
+        batch["observation.state"] = state
+        batch = self.normalize_inputs(batch)
+        batch = dict(batch)  # shallow copy so that adding a key doesn't modify the original
+        batch["observation.images"] = images
+
+        actions = self.model.inference(batch)
+
+        return self.unnormalize_outputs({"action": actions})["action"]
+
 
 class ACTTemporalEnsembler:
     def __init__(self, temporal_ensemble_coeff: float, chunk_size: int) -> None:
@@ -529,6 +541,67 @@ class ACT(nn.Module):
         actions = self.action_head(decoder_out)
 
         return actions, (mu, log_sigma_x2)
+
+    @torch.no_grad()
+    def inference(self, batch: dict[str, Tensor]) -> Tensor:
+        state = batch["observation.state"]
+        images = batch["observation.images"]
+        batch_size = state.shape[0]
+
+        # When not using the VAE encoder, we set the latent to be all zeros.
+        latent_sample = torch.zeros([batch_size, self.config.latent_dim], dtype=torch.float32).to(
+            state.device
+        )
+
+        # Prepare transformer encoder inputs.
+        encoder_in_tokens = [self.encoder_latent_input_proj(latent_sample)]
+        encoder_in_pos_embed = list(self.encoder_1d_feature_pos_embed.weight.unsqueeze(1))
+        encoder_in_tokens.append(self.encoder_robot_state_input_proj(state))
+
+        all_cam_features = []
+        all_cam_pos_embeds = []
+
+        for cam_index in range(batch["observation.images"].shape[-4]):
+            # TODO: finish this to handle multiple cameras
+            cam_features = self.backbone[str(cam_index)](batch["observation.images"][:, cam_index])["feature_map"]
+            # TODO(rcadene, alexander-soare): remove call to `.to` to speedup forward ; precompute and use
+            # buffer
+            cam_pos_embed = self.encoder_cam_feat_pos_embed[str(cam_index)](cam_features).to(dtype=cam_features.dtype)
+            cam_features = self.encoder_img_feat_input_proj[str(cam_index)](cam_features)  # (B, C, h, w)
+            all_cam_features.append(cam_features)
+            all_cam_pos_embeds.append(cam_pos_embed)
+        # Concatenate camera observation feature maps and positional embeddings along the width dimension,
+        # and move to (sequence, batch, dim).
+        all_cam_features = torch.cat(all_cam_features, axis=-1)
+        encoder_in_tokens.extend(einops.rearrange(all_cam_features, "b c h w -> (h w) b c"))
+        all_cam_pos_embeds = torch.cat(all_cam_pos_embeds, axis=-1)
+        encoder_in_pos_embed.extend(einops.rearrange(all_cam_pos_embeds, "b c h w -> (h w) b c"))
+
+        # Stack all tokens along the sequence dimension.
+        encoder_in_tokens = torch.stack(encoder_in_tokens, axis=0)
+        encoder_in_pos_embed = torch.stack(encoder_in_pos_embed, axis=0)
+
+        # Forward pass through the transformer modules.
+        encoder_out = self.encoder(encoder_in_tokens, pos_embed=encoder_in_pos_embed)
+        # TODO(rcadene, alexander-soare): remove call to `device` ; precompute and use buffer
+        decoder_in = torch.zeros(
+            (self.config.chunk_size, batch_size, self.config.dim_model),
+            dtype=encoder_in_pos_embed.dtype,
+            device=encoder_in_pos_embed.device,
+        )
+        decoder_out = self.decoder(
+            decoder_in,
+            encoder_out,
+            encoder_pos_embed=encoder_in_pos_embed,
+            decoder_pos_embed=self.decoder_pos_embed.weight.unsqueeze(1),
+        )
+
+        # Move back to (B, S, C).
+        decoder_out = decoder_out.transpose(0, 1)
+
+        actions = self.action_head(decoder_out)
+
+        return actions
 
 
 class ACTEncoder(nn.Module):
