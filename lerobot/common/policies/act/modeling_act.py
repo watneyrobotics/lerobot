@@ -38,6 +38,8 @@ from lerobot.common.policies.act.configuration_act import ACTConfig
 from lerobot.common.policies.normalize import Normalize, Unnormalize
 
 
+
+
 class ACTPolicy(
     nn.Module,
     PyTorchModelHubMixin,
@@ -103,7 +105,7 @@ class ACTPolicy(
         environment. It works by managing the actions in a queue and only calling `select_actions` when the
         queue is empty.
         """
-        self.eval()
+        # self.eval()
 
         batch = self.normalize_inputs(batch)
         if len(self.expected_image_keys) > 0:
@@ -827,6 +829,33 @@ class ACTSinusoidalPositionEmbedding2d(nn.Module):
         pos_embed = torch.cat((pos_embed_y, pos_embed_x), dim=3).permute(0, 3, 1, 2)  # (1, C, H, W)
 
         return pos_embed
+
+class ACTPolicyONNX(nn.Module):
+    def __init__(self, model: ACTPolicy):
+        super().__init__()
+        self.model = model
+
+    def forward(self, *args):
+        # Unpack inputs and construct the batch dictionary
+        # Adjust the unpacking based on the inputs your model uses
+        print(f"[DEBUG] args: {args}")
+        batch = args[0]
+        
+        # if self.model.use_images:
+        #     batch["observation.images"] = args[idx]
+        #     idx += 1
+
+        # if self.model.use_robot_state:
+        #     batch["observation.state"] = args[idx]
+        #     idx += 1
+
+        # if self.model.use_env_state:
+        #     batch["observation.environment_state"] = args[idx]
+        #     idx += 1
+
+        # Call the original model with the batch dictionary
+        output = self.model.select_action(batch)
+        return output
 
 
 def get_activation_fn(activation: str) -> Callable:
