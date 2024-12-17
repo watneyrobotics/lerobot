@@ -98,7 +98,7 @@ class ACTPolicy(
             self._action_queue = deque([], maxlen=self.config.n_action_steps)
 
     @torch.no_grad
-    def select_action(self, batch: dict[str, Tensor]) -> Tensor:
+    def select_action(self, batch: dict[str, Tensor], relative_action=None) -> Tensor:
         """Select a single action given environment observations.
 
         This method wraps `select_actions` in order to return one action at a time for execution in the
@@ -116,7 +116,9 @@ class ACTPolicy(
         # we are ensembling over.
         if self.config.temporal_ensemble_coeff is not None:
             actions = self.model(batch)[0]  # (batch_size, chunk_size, action_dim)
-            actions = self.unnormalize_outputs({"action": actions})["action"]
+            actions = self.unnormalize_outputs({"action": actions})["action"] 
+            if relative_action is not None:
+                actions += relative_action
             action = self.temporal_ensembler.update(actions)
             return action
 
@@ -127,6 +129,8 @@ class ACTPolicy(
 
             # TODO(rcadene): make _forward return output dictionary?
             actions = self.unnormalize_outputs({"action": actions})["action"]
+            if relative_action is not None:
+                actions += relative_action
 
             # `self.model.forward` returns a (batch_size, n_action_steps, action_dim) tensor, but the queue
             # effectively has shape (n_action_steps, batch_size, *), hence the transpose.
